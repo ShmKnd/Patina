@@ -1,0 +1,14 @@
+[package]
+name = "patina-dsp"
+version = "1.0.0"
+edition = "2021"
+description = "Rust bindings for the Patina analog-modeling DSP library"
+license = "MIT OR Apache-2.0"
+links = "patina_c"
+
+[lib]
+name = "patina"
+path = "src/lib.rs"
+
+[build-dependencies]
+cc = "1"
