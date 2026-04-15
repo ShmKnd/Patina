@@ -74,6 +74,7 @@ add_executable(Patina_tests
     test_ring_modulator.cpp
     test_wave_folder.cpp
     test_opamp_primitive.cpp
+    test_vocoder_band.cpp
 )
 
 target_include_directories(Patina_tests PRIVATE

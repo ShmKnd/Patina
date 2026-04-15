@@ -133,35 +133,39 @@ public:
         double inductorOut = inductor.process(inductorInput, temperature);
         inductorOut /= driveScale;
 
-        // SVF-style 2nd-order filter using inductor + capacitor
-        // This models the LC resonance: fr = 1/(2π√(LC))
-        double hp = v - st.s2 - st.s1 * qInv;
-        st.s1 += g * hp;
-        st.s2 += g * st.s1;
+        // TPT/ZDF SVF (Zavalishin 2012) — unconditionally stable for any g or Q.
+        // Forward-Euler form is unstable when g = tan(π·fc/SR) > 1 (fc near Nyquist);
+        // the TPT form eliminates the delay-free loop and avoids that divergence.
+        const double k  = qInv;                        // damping = 1/Q
+        const double a1 = 1.0 / (1.0 + g * (g + k));  // normalisation
+        const double a2 = g * a1;
+        const double a3 = g * a2;                      // g² · a1
+        const double v3 = v - st.s2;
+        const double bp = a1 * st.s1 + a2 * v3;       // band-pass
+        const double lp = st.s2 + a2 * st.s1 + a3 * v3; // low-pass
+        const double hp = v - k * bp - lp;             // high-pass
 
-        // Apply inductor nonlinearity to the resonant state
-        // The inductor's saturation affects the filter's behavior at high levels
-        double inductorColor = (inductorOut - v) * 0.3;
-        st.s1 += inductorColor * g * 0.1;
+        // Subtle inductor coloring on BP resonant path (saturation character)
+        const double inductorColor = (inductorOut - v) * 0.1;
 
-        // Sanitize state
-        st.s1 = FastMath::sanitize(st.s1);
-        st.s2 = FastMath::sanitize(st.s2);
+        // Update states (TPT state advance: s_new = 2*output - s_old)
+        st.s1 = FastMath::sanitize(2.0 * (bp + inductorColor * 0.05) - st.s1);
+        st.s2 = FastMath::sanitize(2.0 * lp - st.s2);
 
         double output;
         switch (filterType)
         {
-            case LPF:   output = st.s2; break;
+            case LPF:   output = lp; break;
             case HPF:   output = hp; break;
-            case BPF:   output = st.s1; break;
-            case Notch:  output = hp + st.s2; break;
-            default:     output = st.s2; break;
+            case BPF:   output = bp; break;
+            case Notch: output = hp + lp; break;
+            default:    output = lp; break;
         }
 
         // Insertion loss from inductor DCR
         output *= insertionLoss;
 
-        return static_cast<float>(output);
+        return static_cast<float>(FastMath::sanitize(output));
     }
 
     inline float process(int channel, float x, const Params& params) noexcept

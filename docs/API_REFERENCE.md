@@ -96,38 +96,41 @@
 60. [MidSideIron](#60-midsideiron)
 61. [MidSidePrecision](#61-midsideprecision)
 
+#### L3: Vocoder
+62. [VocoderBand](#62-vocoderband)
+
 #### L3: Mixer
-62. [Mixer](#62-mixer)
-63. [DuckingMixer](#63-duckingmixer)
-64. [GainUtils](#64-gainutils)
+63. [Mixer](#63-mixer)
+64. [DuckingMixer](#64-duckingmixer)
+65. [GainUtils](#65-gainutils)
 
 #### L3: Power
-65. [PowerSupplySag](#65-powersupplysag)
-66. [BatterySag](#66-batterysag)
-67. [AdapterSag](#67-adaptersag)
-68. [CapacitorAging](#68-capacitoraging)
+66. [PowerSupplySag](#66-powersupplysag)
+67. [BatterySag](#67-batterysag)
+68. [AdapterSag](#68-adaptersag)
+69. [CapacitorAging](#69-capacitoraging)
 
 ### L4 — Engines
-69. [BbdDelayEngine](#69-bbddelayengine)
-70. [DriveEngine](#70-driveengine)
-71. [ReverbEngine](#71-reverbengine)
-72. [CompressorEngine](#72-compressorengine)
-73. [EnvelopeGeneratorEngine](#73-envelopegeneratorengine)
-74. [ModulationEngine](#74-modulationengine)
-75. [TapeMachineEngine](#75-tapemachineengine)
-76. [ChannelStripEngine](#76-channelstripengine)
-77. [EqEngine](#77-eqengine)
-78. [LimiterEngine](#78-limiterengine)
-79. [FilterEngine](#79-filterengine)
+70. [BbdDelayEngine](#70-bbddelayengine)
+71. [DriveEngine](#71-driveengine)
+72. [ReverbEngine](#72-reverbengine)
+73. [CompressorEngine](#73-compressorengine)
+74. [EnvelopeGeneratorEngine](#74-envelopegeneratorengine)
+75. [ModulationEngine](#75-modulationengine)
+76. [TapeMachineEngine](#76-tapemachineengine)
+77. [ChannelStripEngine](#77-channelstripengine)
+78. [EqEngine](#78-eqengine)
+79. [LimiterEngine](#79-limiterengine)
+80. [FilterEngine](#80-filterengine)
 - [Typical Full Chain Example](#typical-full-chain-example)
 
 ### Config
-80. [ModdingConfig](#80-moddingconfig)
-81. [AnalogPresets](#81-analogpresets)
+81. [ModdingConfig](#81-moddingconfig)
+82. [AnalogPresets](#82-analogpresets)
 
 ### Language Bindings
-82. [C API (patina_c.h)](#82-c-api-patina_ch)
-83. [Rust Crate (patina-dsp)](#83-rust-crate-patina-dsp)
+83. [C API (patina_c.h)](#83-c-api-patina_ch)
+84. [Rust Crate (patina-dsp)](#84-rust-crate-patina-dsp)
 
 ---
 
@@ -1451,6 +1454,8 @@ public:
 
 Passive LC (inductor-capacitor) filter using physical models for both components. Accurately represents classic studio passive equalizer circuits, resonant filters, and vintage crossover networks. The inductor model includes core saturation, DC resistance losses, and parasitic resonance for authentic analog behavior.
 
+**Improved v2:** Upgraded to TPT/ZDF state-variable filter (Zavalishin 2012) for unconditional stability at high Q and near-Nyquist frequencies, eliminating phase warp and divergence artifacts of older SVF implementations.
+
 **Parts used:** `InductorPrimitive` × 1 + `RC_Element` × 1
 
 ```cpp
@@ -2265,7 +2270,7 @@ public:
 `#include "dsp/circuits/saturation/TubePreamp.h"`
 
 12AX7 triode preamp emulation. Koren simplified plate curve model.
-Grid conduction (even-order harmonics) and cathode bypass capacitor (low-frequency boost).
+Grid conduction (even-order harmonics), cathode bypass capacitor (low-frequency boost), and temperature-dependent modeling for microphonics, emission, and grid conduction sensitivity.
 
 ```cpp
 class TubePreamp {
@@ -2275,11 +2280,15 @@ public:
         float bias        = 0.5f;   // 0.0–1.0
         float outputLevel = 0.7f;   // 0.0–1.0
         bool  enableGridConduction = true;
+        float tubeAge = 0.0f;       // Tube aging 0.0 (new) – 1.0 (end of life)
+        float supplyRipple = 0.0f;  // Power supply ripple amount 0.0–1.0
+        float temperature = 25.0f;  // Operating temperature (°C) — affects gm, microphonics, grid sensitivity
     };
 
     void  prepare(int numChannels, double sr) noexcept;
     void  prepare(const patina::ProcessSpec& spec) noexcept;
     void  reset() noexcept;
+    void  setTube(const TubeTriode::Spec& tubeSpec) noexcept; // Switch tube type (e.g., 12AX7 ↔ 12AT7)
     float process(int channel, float x, const Params& params) noexcept;
     void  processBlock(float* const* io, int numCh, int numSamples,
                        const Params& params) noexcept;
@@ -2292,6 +2301,14 @@ public:
 | `bias` | 0.0–1.0 | Bias point (internal: `(bias-0.5)*1.6` → ±0.8V DC offset) |
 | `outputLevel` | 0.0–1.0 | Output level |
 | `enableGridConduction` | bool | Enable grid conduction (asymmetric distortion) |
+| `tubeAge` | 0.0–1.0 | Tube aging factor — reduces gain and increases noise as value increases |
+| `supplyRipple` | 0.0–1.0 | Power supply ripple modulation amount |
+| `temperature` | 0–100°C | Operating temperature. Default 25°C (room temperature). Affects microphonics, gm, and grid conduction. |
+
+**Temperature Effects:**
+- **gm (transconductance):** Peaks around 55°C (+4%), drops when cold (−3.5% at 15°C)
+- **Microphonics:** Increase with heat (thermal expansion loosens tube elements), up to 2× at 100°C
+- **Grid conduction sensitivity:** More pronounced when warm; increases grid current by ~0.5%/°C above 25°C
 
 ---
 
@@ -2785,11 +2802,104 @@ for (int i = 0; i < numSamples; ++i) {
 
 ---
 
+## L3: Vocoder
+
+---
+
+## 62. VocoderBand
+
+`#include "dsp/circuits/vocoder/VocoderBand.h"`
+
+Single band of a classic analog vocoder channel strip. Fully constructed from L2 primitives: OTA SVF filters, diode rectifier envelope detector with asymmetric RC charging/discharging, and VCA for modulation depth. Models the characteristic sound of vintage vocoder circuits used in analog synthesizers and professional recording equipment.
+
+**Signal Flow:**
+1. **Modulator Input** → OTA SVF (BPF) → Half-wave rectifier → Envelope detector (RC attack/release)
+2. **Carrier Input** → OTA SVF (BPF) → VCA (modulated by envelope) → **Output**
+
+**Parts used:** `OTA_Primitive` × 2 + `DiodePrimitive` × 1 + `RC_Element` × 2 + `VcaPrimitive` × 1
+
+```cpp
+class VocoderBand {
+public:
+    struct Params {
+        float centerHz    = 1000.0f;  // BPF center frequency (Hz)
+        float q           = 4.0f;     // BPF Q (resonance)
+        float envAmount   = 1.0f;     // Envelope depth applied to VCA (0.0–1.0)
+        float temperature = 25.0f;    // Operating temperature (°C) — affects OTA gm + VCA gain
+    };
+
+    struct Spec {
+        OTA_Primitive::Spec otaSpec      = OTA_Primitive::LM13700();
+        DiodePrimitive::Spec diodeSpec   = DiodePrimitive::Si1N4148();
+        VcaPrimitive::Spec   vcaSpec     = VcaPrimitive::THAT2180();
+        double R_att = 5e3;     // Attack resistance (5 kΩ)
+        double C_env = 1e-6;    // Envelope capacitance (1 µF)
+        double R_rel = 50e3;    // Release resistance (50 kΩ)
+    };
+
+    VocoderBand() noexcept;
+    explicit VocoderBand(const Spec& s) noexcept;
+
+    void prepare(const patina::ProcessSpec& pspec) noexcept;
+    void prepare(int channels, double sampleRate) noexcept;
+    void reset() noexcept;
+
+    inline float process(int channel, float modIn, float carIn,
+                         const Params& params) noexcept;
+    void processBlock(const float* const* modIn,
+                      const float* const* carIn,
+                      float* const*       output,
+                      int numChannels, int numSamples,
+                      const Params& params) noexcept;
+
+    double getEnvelope(int channel) const noexcept;
+    double attackMs()  const noexcept;
+    double releaseMs() const noexcept;
+};
+```
+
+| Parameter | Range | Description |
+|-----------|------|------|
+| `centerHz` | 20–Nyquist | BPF center frequency for both modulator and carrier |
+| `q` | 0.5–30.0 | BPF resonance / Q factor |
+| `envAmount` | 0.0–1.0 | Envelope depth applied to VCA (0 = no modulation, 1 = full depth) |
+| `temperature` | 0–100°C | Operating temperature. Default 25°C. Affects OTA transconductance and VCA gain. |
+
+**Typical Usage:**
+
+```cpp
+VocoderBand band;
+band.prepare(2, 48000.0);
+
+VocoderBand::Params p;
+p.centerHz  = 1000.0f;
+p.q         = 4.0f;
+p.envAmount = 1.0f;
+
+// Per-sample processing (modulator = voice, carrier = synth)
+float output = band.process(0, modulatorSample, carrierSample, p);
+
+// Or block processing
+band.processBlock(modInput, carInput, output, 2, numSamples, p);
+
+// Query current envelope state
+double env = band.getEnvelope(0);
+```
+
+**Vocoder Characteristics:**
+- **Attack:** Fast charge (R_att × C_env ≈ 5 ms) captures transient peaks
+- **Release:** Slow discharge (R_rel × C_env ≈ 50 ms) maintains tone between events
+- **BPF:** OTA SVF with temperature-dependent center frequency
+- **Half-wave rectification:** Si diode clip (1N4148) extracts envelope from AC modulator
+- **VCA:** Blackmer THAT2180-style log/antilog cell for smooth modulation gain
+
+---
+
 ## L3: Mixer
 
 ---
 
-## 62. Mixer
+## 63. Mixer
 
 `#include "dsp/circuits/mixer/Mixer.h"`
 
@@ -2811,7 +2921,7 @@ Same as above, floating-point version (backward compatible).
 
 ---
 
-## 63. DuckingMixer
+## 64. DuckingMixer
 
 `#include "dsp/circuits/mixer/DuckingMixer.h"`
 
@@ -2839,7 +2949,7 @@ static float analogDuckingMix(float dryV, float wetV, double mix01,
 
 ---
 
-## 64. GainUtils
+## 65. GainUtils
 
 `#include "dsp/circuits/mixer/GainUtils.h"`
 
@@ -2874,7 +2984,7 @@ static float mixToFs(int channel, float dryV, float wetV,
 
 ---
 
-## 65. PowerSupplySag
+## 66. PowerSupplySag
 
 `#include "dsp/circuits/power/PowerSupplySag.h"`
 
@@ -2931,7 +3041,7 @@ public:
 
 ---
 
-## 66. BatterySag
+## 67. BatterySag
 
 `#include "dsp/circuits/power/BatterySag.h"`
 
@@ -2992,7 +3102,7 @@ public:
 
 ---
 
-## 67. AdapterSag
+## 68. AdapterSag
 
 `#include "dsp/circuits/power/AdapterSag.h"`
 
@@ -3060,7 +3170,7 @@ public:
 
 ---
 
-## 68. CapacitorAging
+## 69. CapacitorAging
 
 `#include "dsp/circuits/power/CapacitorAging.h"`
 
@@ -3134,7 +3244,7 @@ public:
 
 ---
 
-## 69. BbdDelayEngine
+## 70. BbdDelayEngine
 
 `#include "dsp/engine/BbdDelayEngine.h"`
 
@@ -3234,7 +3344,7 @@ engine.processBlock(input, output, 2, blockSize, params);
 
 ---
 
-## 70. DriveEngine
+## 71. DriveEngine
 
 `#include "dsp/engine/DriveEngine.h"`
 
@@ -3288,7 +3398,7 @@ drive.processBlock(input, output, 2, blockSize, p);
 
 ---
 
-## 71. ReverbEngine
+## 72. ReverbEngine
 
 `#include "dsp/engine/ReverbEngine.h"`
 
@@ -3351,7 +3461,7 @@ reverb.processBlock(input, output, 2, blockSize, p);
 
 ---
 
-## 72. CompressorEngine
+## 73. CompressorEngine
 
 `#include "dsp/engine/CompressorEngine.h"`
 
@@ -3425,7 +3535,7 @@ float gr = comp.getFetGainReductionDb(0);
 
 ---
 
-## 73. EnvelopeGeneratorEngine
+## 74. EnvelopeGeneratorEngine
 
 `#include "dsp/engine/EnvelopeGeneratorEngine.h"`
 
@@ -3493,7 +3603,7 @@ env.processBlock(inPtrs, outPtrs, 2, 256, p);
 
 ---
 
-## 74. ModulationEngine
+## 75. ModulationEngine
 
 `#include "dsp/engine/ModulationEngine.h"`
 
@@ -3560,7 +3670,7 @@ mod.processBlock(input, output, 2, blockSize, p);
 
 ---
 
-## 75. TapeMachineEngine
+## 76. TapeMachineEngine
 
 `#include "dsp/engine/TapeMachineEngine.h"`
 
@@ -3619,7 +3729,7 @@ tape.processBlock(input, output, 2, blockSize, p);
 
 ---
 
-## 76. ChannelStripEngine
+## 77. ChannelStripEngine
 
 `#include "dsp/engine/ChannelStripEngine.h"`
 
@@ -3689,7 +3799,7 @@ float level = strip.getOutputLevel(0);  // Metering value
 
 ---
 
-## 77. EqEngine
+## 78. EqEngine
 
 `#include "dsp/engine/EqEngine.h"`
 
@@ -3840,7 +3950,7 @@ float mixed = gDry * inSample + gWet * out;
 
 ---
 
-## 78. LimiterEngine
+## 79. LimiterEngine
 
 `#include "dsp/engine/LimiterEngine.h"`
 
@@ -3902,7 +4012,7 @@ float gr = lim.getVcaGainReductionDb(0);
 
 ---
 
-## 79. FilterEngine
+## 80. FilterEngine
 
 `#include "dsp/engine/FilterEngine.h"`
 
@@ -4022,7 +4132,7 @@ filt.processBlock(input, output, 2, blockSize, p);
 
 ---
 
-## 80. ModdingConfig
+## 81. ModdingConfig
 
 `#include "dsp/config/ModdingConfig.h"`
 
@@ -4044,7 +4154,7 @@ int capGrade  = Standard;  // Capacitor grade selection
 
 ---
 
-## 81. AnalogPresets
+## 82. AnalogPresets
 
 `#include "dsp/config/Presets.h"`
 
@@ -4108,7 +4218,7 @@ emu.setBandwidthScale(capGradeBandwidthScale(ModdingConfig::Film));
 
 ---
 
-## 82. C API (patina_c.h)
+## 83. C API (patina_c.h)
 
 `#include "patina_c.h"`
 
@@ -4206,7 +4316,7 @@ cmake --build .
 
 ---
 
-## 83. Rust Crate (patina-dsp)
+## 84. Rust Crate (patina-dsp)
 
 `bindings/rust/` — Safe Rust wrapper for `patina_c.h`.
 

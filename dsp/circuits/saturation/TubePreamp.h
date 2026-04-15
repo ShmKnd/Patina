@@ -30,6 +30,10 @@ public:
         bool enableGridConduction = true;
         float tubeAge = 0.0f;       // Tube aging 0.0 (new) – 1.0 (end of life)
         float supplyRipple = 0.0f;  // Power supply ripple amount 0.0–1.0
+        // Operating temperature (°C). Default 25.0 = room temperature (no change vs existing behavior).
+        // Modulates cathode emission (gm), microphonics, and grid conduction sensitivity.
+        // Typical range: 0–100°C (chassis/ambient temperature).
+        float temperature = 25.0f;
     };
 
     TubePreamp() noexcept
@@ -61,6 +65,14 @@ public:
         prepare(spec.numChannels, spec.sampleRate);
     }
 
+    // Switch tube type (e.g. 12AX7 ↔ 12AT7). Re-prepare internal triode coefficients.
+    void setTube(const TubeTriode::Spec& tubeSpec) noexcept
+    {
+        tube = TubeTriode(tubeSpec);
+        if (sampleRate > 0.0)
+            tube.prepare(sampleRate);
+    }
+
     void reset() noexcept
     {
         for (auto& s : dcBlockState) { s.x = 0.0; s.y = 0.0; }
@@ -80,8 +92,19 @@ public:
         const double ageFactor = 1.0 - 0.4 * static_cast<double>(params.tubeAge); // Maximum 40% gain reduction
         const double ageNoiseFactor = 1.0 + 3.0 * static_cast<double>(params.tubeAge); // Noise increase
 
-        // Drive gain (1x–16x) × emission degradation
-        const double gain = (1.0 + params.drive * 15.0) * ageFactor;
+        // Temperature effects (relative to 25°C room-temperature baseline)
+        // At 25°C: all factors = 1.0 — identical to existing behavior.
+        // gm peaks around 55°C (+4%) then plateaus; drops when cold (-3.5% at 15°C)
+        const double tempDelta = static_cast<double>(params.temperature) - 25.0;
+        const double tempGmFactor = std::clamp(1.0 + 0.003 * tempDelta - 5e-5 * tempDelta * tempDelta,
+                                               0.7, 1.2);
+        // Microphonics scale up with heat (thermal expansion loosens tube elements)
+        const double tempMicFactor = 1.0 + std::max(0.0, tempDelta) * 0.02;
+        // Grid conduction more sensitive when warm
+        const double tempGridFactor = 1.0 + std::max(0.0, tempDelta) * 0.005;
+
+        // Drive gain (1x–16x) × emission degradation × temperature gm
+        const double gain = (1.0 + params.drive * 15.0) * ageFactor * tempGmFactor;
         double v = (double)x * gain;
 
         // Bias offset (±0.8V — limited to safe range)
@@ -106,10 +129,10 @@ public:
             v = millerCapState[ch];
         }
 
-        // grid conduction
+        // grid conduction (sensitivity increases with operating temperature)
         if (params.enableGridConduction)
         {
-            const double gridAlpha = 0.001;
+            const double gridAlpha = 0.001 * tempGridFactor;
             if (v > 0.0)
             {
                 gridCapState[ch] += gridAlpha * (v - gridCapState[ch]);
@@ -127,7 +150,7 @@ public:
             microphonicsPhase[ch] += kMicrophonicsFreq / sampleRate;
             if (microphonicsPhase[ch] > 1.0) microphonicsPhase[ch] -= 1.0;
             double mNoise = std::sin(microphonicsPhase[ch] * 2.0 * 3.14159265358979323846)
-                          * normalDist(rng) * kMicrophonicsLevel * ageNoiseFactor;
+                          * normalDist(rng) * kMicrophonicsLevel * ageNoiseFactor * tempMicFactor;
             v += mNoise;
         }
 
