@@ -132,10 +132,16 @@ Example objects:
 [patina~ drive]
 [patina~ filter]
 [patina~ delay]
+[patina-drive~]
+[patina-filter~]
+[patina-delay~]
 ```
 
 Parameters use `param <name> <value>` messages, and `[patina~ envelope]` also
 accepts `gate 1` / `gate 0`.
+
+The `patina-<engine>~` abstraction files are installed with the external so
+PlugData/Pd option-click help can open engine-specific help patches directly.
 
 ### Running Examples
 

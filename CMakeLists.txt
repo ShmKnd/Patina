@@ -143,6 +143,12 @@ if(PATINA_BUILD_PD_EXTERNALS)
     endif()
 
     install(TARGETS patina_tilde LIBRARY DESTINATION lib/pd/extra)
+    install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bindings/pd/
+        DESTINATION lib/pd/extra
+        FILES_MATCHING
+            PATTERN "*.pd"
+            PATTERN "README.md"
+    )
     message(STATUS "  Build Pd Externals: ON")
 endif()
 

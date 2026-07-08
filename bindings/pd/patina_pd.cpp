@@ -4,6 +4,7 @@
     patina_pd.cpp - Pure Data external for the Patina C API
 
     Object: [patina~ <engine>]
+    Aliases: [patina-drive~], [patina-filter~], [patina-delay~], ...
     Engines: drive, filter, delay, reverb, compressor, modulation, tape, eq,
              limiter, channelstrip, envelope
 
@@ -70,6 +71,17 @@ struct PatinaPd {
 };
 
 t_class* patinaClass = nullptr;
+t_class* patinaDriveClass = nullptr;
+t_class* patinaFilterClass = nullptr;
+t_class* patinaDelayClass = nullptr;
+t_class* patinaReverbClass = nullptr;
+t_class* patinaCompressorClass = nullptr;
+t_class* patinaModulationClass = nullptr;
+t_class* patinaTapeClass = nullptr;
+t_class* patinaEqClass = nullptr;
+t_class* patinaLimiterClass = nullptr;
+t_class* patinaChannelStripClass = nullptr;
+t_class* patinaEnvelopeClass = nullptr;
 
 bool symbolEquals(t_symbol* s, const char* text)
 {
@@ -145,7 +157,9 @@ bool setDrive(PatinaDriveParams& p, const char* name, float value)
         || setIf(name, "temperature", p.temperature, value)
         || setIf(name, "sag", p.sag_amount, value)
         || setIf(name, "sag_amount", p.sag_amount, value)
+        || setIf(name, "clipping", p.clipping_mode, value)
         || setIf(name, "clipping_mode", p.clipping_mode, value)
+        || setIf(name, "diode", p.diode_type, value)
         || setIf(name, "diode_type", p.diode_type, value)
         || setIf(name, "power_sag", p.enable_power_sag, value)
         || setIf(name, "pedal_mode", p.pedal_mode, value)
@@ -183,9 +197,23 @@ bool setDelay(PatinaDelayParams& p, const char* name, float value)
         || setIf(name, "tone", p.tone, value)
         || setIf(name, "mix", p.mix, value)
         || setIf(name, "comp", p.comp_amount, value)
+        || setIf(name, "comp_amount", p.comp_amount, value)
         || setIf(name, "chorus_depth", p.chorus_depth, value)
         || setIf(name, "rate", p.lfo_rate_hz, value)
-        || setIf(name, "lfo_rate", p.lfo_rate_hz, value);
+        || setIf(name, "lfo_rate", p.lfo_rate_hz, value)
+        || setIf(name, "lfo_rate_hz", p.lfo_rate_hz, value)
+        || setIf(name, "supply", p.supply_voltage, value)
+        || setIf(name, "supply_voltage", p.supply_voltage, value)
+        || setIf(name, "stages", p.bbd_stages, value)
+        || setIf(name, "bbd_stages", p.bbd_stages, value)
+        || setIf(name, "emulate_bbd", p.emulate_bbd, value)
+        || setIf(name, "emulate_opamp_sat", p.emulate_opamp_sat, value)
+        || setIf(name, "emulate_tone_rc", p.emulate_tone_rc, value)
+        || setIf(name, "aging", p.enable_aging, value)
+        || setIf(name, "enable_aging", p.enable_aging, value)
+        || setIf(name, "age_years", p.age_years, value)
+        || setIf(name, "capacitance_scale", p.capacitance_scale, value)
+        || setIf(name, "pedal_mode", p.pedal_mode, value);
 }
 
 bool setCommon(PatinaPd* x, const char* name, float value)
@@ -198,60 +226,175 @@ bool setCommon(PatinaPd* x, const char* name, float value)
             return setIf(name, "decay", x->reverbParams.decay, value)
                 || setIf(name, "tone", x->reverbParams.tone, value)
                 || setIf(name, "mix", x->reverbParams.mix, value)
-                || setIf(name, "type", x->reverbParams.type, value);
+                || setIf(name, "type", x->reverbParams.type, value)
+                || setIf(name, "supply", x->reverbParams.supply_voltage, value)
+                || setIf(name, "supply_voltage", x->reverbParams.supply_voltage, value)
+                || setIf(name, "tension", x->reverbParams.tension, value)
+                || setIf(name, "drip", x->reverbParams.drip_amount, value)
+                || setIf(name, "drip_amount", x->reverbParams.drip_amount, value)
+                || setIf(name, "springs", x->reverbParams.num_springs, value)
+                || setIf(name, "num_springs", x->reverbParams.num_springs, value)
+                || setIf(name, "predelay", x->reverbParams.predelay_ms, value)
+                || setIf(name, "predelay_ms", x->reverbParams.predelay_ms, value)
+                || setIf(name, "damping", x->reverbParams.damping, value)
+                || setIf(name, "diffusion", x->reverbParams.diffusion, value)
+                || setIf(name, "mod_depth", x->reverbParams.mod_depth, value)
+                || setIf(name, "pedal_mode", x->reverbParams.pedal_mode, value);
         case Engine::compressor:
             return setIf(name, "threshold", x->compressorParams.threshold, value)
                 || setIf(name, "input", x->compressorParams.input_gain, value)
+                || setIf(name, "input_gain", x->compressorParams.input_gain, value)
                 || setIf(name, "output", x->compressorParams.output_gain, value)
+                || setIf(name, "output_gain", x->compressorParams.output_gain, value)
                 || setIf(name, "attack", x->compressorParams.attack, value)
                 || setIf(name, "release", x->compressorParams.release, value)
                 || setIf(name, "ratio", x->compressorParams.ratio, value)
                 || setIf(name, "mix", x->compressorParams.mix, value)
-                || setIf(name, "type", x->compressorParams.type, value);
+                || setIf(name, "type", x->compressorParams.type, value)
+                || setIf(name, "supply", x->compressorParams.supply_voltage, value)
+                || setIf(name, "supply_voltage", x->compressorParams.supply_voltage, value)
+                || setIf(name, "gate", x->compressorParams.enable_gate, value)
+                || setIf(name, "enable_gate", x->compressorParams.enable_gate, value)
+                || setIf(name, "gate_threshold", x->compressorParams.gate_threshold_db, value)
+                || setIf(name, "gate_threshold_db", x->compressorParams.gate_threshold_db, value)
+                || setIf(name, "photo_mode", x->compressorParams.photo_mode, value)
+                || setIf(name, "pedal_mode", x->compressorParams.pedal_mode, value);
         case Engine::modulation:
             return setIf(name, "rate", x->modulationParams.rate, value)
                 || setIf(name, "depth", x->modulationParams.depth, value)
                 || setIf(name, "feedback", x->modulationParams.feedback, value)
                 || setIf(name, "mix", x->modulationParams.mix, value)
-                || setIf(name, "type", x->modulationParams.type, value);
+                || setIf(name, "type", x->modulationParams.type, value)
+                || setIf(name, "supply", x->modulationParams.supply_voltage, value)
+                || setIf(name, "supply_voltage", x->modulationParams.supply_voltage, value)
+                || setIf(name, "center_freq", x->modulationParams.center_freq_hz, value)
+                || setIf(name, "center_freq_hz", x->modulationParams.center_freq_hz, value)
+                || setIf(name, "freq_spread", x->modulationParams.freq_spread_hz, value)
+                || setIf(name, "freq_spread_hz", x->modulationParams.freq_spread_hz, value)
+                || setIf(name, "stages", x->modulationParams.num_stages, value)
+                || setIf(name, "num_stages", x->modulationParams.num_stages, value)
+                || setIf(name, "temperature", x->modulationParams.temperature, value)
+                || setIf(name, "tremolo_mode", x->modulationParams.tremolo_mode, value)
+                || setIf(name, "stereo_phase", x->modulationParams.stereo_phase_invert, value)
+                || setIf(name, "stereo_phase_invert", x->modulationParams.stereo_phase_invert, value)
+                || setIf(name, "chorus_delay", x->modulationParams.chorus_delay_ms, value)
+                || setIf(name, "chorus_delay_ms", x->modulationParams.chorus_delay_ms, value)
+                || setIf(name, "stereo_width", x->modulationParams.stereo_width, value)
+                || setIf(name, "pedal_mode", x->modulationParams.pedal_mode, value);
         case Engine::tape:
             return setIf(name, "input", x->tapeParams.input_gain, value)
+                || setIf(name, "input_gain", x->tapeParams.input_gain, value)
                 || setIf(name, "saturation", x->tapeParams.saturation, value)
                 || setIf(name, "bias", x->tapeParams.bias_amount, value)
+                || setIf(name, "bias_amount", x->tapeParams.bias_amount, value)
+                || setIf(name, "speed", x->tapeParams.tape_speed, value)
+                || setIf(name, "tape_speed", x->tapeParams.tape_speed, value)
                 || setIf(name, "wow_flutter", x->tapeParams.wow_flutter, value)
+                || setIf(name, "head_bump", x->tapeParams.enable_head_bump, value)
+                || setIf(name, "enable_head_bump", x->tapeParams.enable_head_bump, value)
+                || setIf(name, "hf_rolloff", x->tapeParams.enable_hf_rolloff, value)
+                || setIf(name, "enable_hf_rolloff", x->tapeParams.enable_hf_rolloff, value)
+                || setIf(name, "head_wear", x->tapeParams.head_wear, value)
+                || setIf(name, "tape_age", x->tapeParams.tape_age, value)
+                || setIf(name, "transformer", x->tapeParams.enable_transformer, value)
+                || setIf(name, "enable_transformer", x->tapeParams.enable_transformer, value)
+                || setIf(name, "transformer_drive", x->tapeParams.transformer_drive, value)
+                || setIf(name, "transformer_sat", x->tapeParams.transformer_sat, value)
                 || setIf(name, "tone", x->tapeParams.tone, value)
-                || setIf(name, "mix", x->tapeParams.mix, value);
+                || setIf(name, "mix", x->tapeParams.mix, value)
+                || setIf(name, "supply", x->tapeParams.supply_voltage, value)
+                || setIf(name, "supply_voltage", x->tapeParams.supply_voltage, value)
+                || setIf(name, "pedal_mode", x->tapeParams.pedal_mode, value);
         case Engine::channelStrip:
             return setIf(name, "drive", x->channelStripParams.preamp_drive, value)
+                || setIf(name, "preamp_drive", x->channelStripParams.preamp_drive, value)
                 || setIf(name, "bias", x->channelStripParams.preamp_bias, value)
+                || setIf(name, "preamp_bias", x->channelStripParams.preamp_bias, value)
                 || setIf(name, "output", x->channelStripParams.preamp_output, value)
+                || setIf(name, "preamp_output", x->channelStripParams.preamp_output, value)
+                || setIf(name, "tube_age", x->channelStripParams.tube_age, value)
+                || setIf(name, "eq", x->channelStripParams.enable_eq, value)
+                || setIf(name, "enable_eq", x->channelStripParams.enable_eq, value)
+                || setIf(name, "eq_cutoff", x->channelStripParams.eq_cutoff_hz, value)
+                || setIf(name, "eq_cutoff_hz", x->channelStripParams.eq_cutoff_hz, value)
+                || setIf(name, "eq_resonance", x->channelStripParams.eq_resonance, value)
+                || setIf(name, "eq_type", x->channelStripParams.eq_type, value)
+                || setIf(name, "eq_temperature", x->channelStripParams.eq_temperature, value)
                 || setIf(name, "gate", x->channelStripParams.enable_gate, value)
-                || setIf(name, "gate_threshold", x->channelStripParams.gate_threshold_db, value);
+                || setIf(name, "enable_gate", x->channelStripParams.enable_gate, value)
+                || setIf(name, "gate_threshold", x->channelStripParams.gate_threshold_db, value)
+                || setIf(name, "gate_threshold_db", x->channelStripParams.gate_threshold_db, value)
+                || setIf(name, "gate_hysteresis", x->channelStripParams.gate_hysteresis_db, value)
+                || setIf(name, "gate_hysteresis_db", x->channelStripParams.gate_hysteresis_db, value)
+                || setIf(name, "input_trim", x->channelStripParams.input_trim_db, value)
+                || setIf(name, "input_trim_db", x->channelStripParams.input_trim_db, value)
+                || setIf(name, "output_trim", x->channelStripParams.output_trim_db, value)
+                || setIf(name, "output_trim_db", x->channelStripParams.output_trim_db, value)
+                || setIf(name, "supply", x->channelStripParams.supply_voltage, value)
+                || setIf(name, "supply_voltage", x->channelStripParams.supply_voltage, value)
+                || setIf(name, "pedal_mode", x->channelStripParams.pedal_mode, value);
         case Engine::eq:
-            return setIf(name, "low_gain", x->eqParams.low_gain_db, value)
-                || setIf(name, "mid_gain", x->eqParams.mid_gain_db, value)
-                || setIf(name, "high_gain", x->eqParams.high_gain_db, value)
+            return setIf(name, "low", x->eqParams.enable_low, value)
+                || setIf(name, "enable_low", x->eqParams.enable_low, value)
                 || setIf(name, "low_freq", x->eqParams.low_freq_hz, value)
+                || setIf(name, "low_freq_hz", x->eqParams.low_freq_hz, value)
+                || setIf(name, "low_gain", x->eqParams.low_gain_db, value)
+                || setIf(name, "low_gain_db", x->eqParams.low_gain_db, value)
+                || setIf(name, "low_resonance", x->eqParams.low_resonance, value)
+                || setIf(name, "mid", x->eqParams.enable_mid, value)
+                || setIf(name, "enable_mid", x->eqParams.enable_mid, value)
                 || setIf(name, "mid_freq", x->eqParams.mid_freq_hz, value)
+                || setIf(name, "mid_freq_hz", x->eqParams.mid_freq_hz, value)
+                || setIf(name, "mid_gain", x->eqParams.mid_gain_db, value)
+                || setIf(name, "mid_gain_db", x->eqParams.mid_gain_db, value)
+                || setIf(name, "mid_q", x->eqParams.mid_q, value)
+                || setIf(name, "high", x->eqParams.enable_high, value)
+                || setIf(name, "enable_high", x->eqParams.enable_high, value)
                 || setIf(name, "high_freq", x->eqParams.high_freq_hz, value)
-                || setIf(name, "output", x->eqParams.output_gain_db, value);
+                || setIf(name, "high_freq_hz", x->eqParams.high_freq_hz, value)
+                || setIf(name, "high_gain", x->eqParams.high_gain_db, value)
+                || setIf(name, "high_gain_db", x->eqParams.high_gain_db, value)
+                || setIf(name, "high_resonance", x->eqParams.high_resonance, value)
+                || setIf(name, "temperature", x->eqParams.temperature, value)
+                || setIf(name, "output", x->eqParams.output_gain_db, value)
+                || setIf(name, "output_gain", x->eqParams.output_gain_db, value)
+                || setIf(name, "output_gain_db", x->eqParams.output_gain_db, value)
+                || setIf(name, "supply", x->eqParams.supply_voltage, value)
+                || setIf(name, "supply_voltage", x->eqParams.supply_voltage, value)
+                || setIf(name, "pedal_mode", x->eqParams.pedal_mode, value);
         case Engine::limiter:
             return setIf(name, "ceiling", x->limiterParams.ceiling, value)
                 || setIf(name, "attack", x->limiterParams.attack, value)
                 || setIf(name, "release", x->limiterParams.release, value)
                 || setIf(name, "output", x->limiterParams.output_gain, value)
+                || setIf(name, "output_gain", x->limiterParams.output_gain, value)
                 || setIf(name, "mix", x->limiterParams.mix, value)
-                || setIf(name, "type", x->limiterParams.type, value);
+                || setIf(name, "type", x->limiterParams.type, value)
+                || setIf(name, "pedal_mode", x->limiterParams.pedal_mode, value)
+                || setIf(name, "supply", x->limiterParams.supply_voltage, value)
+                || setIf(name, "supply_voltage", x->limiterParams.supply_voltage, value);
         case Engine::envelope:
             return setIf(name, "attack", x->envelopeParams.attack, value)
                 || setIf(name, "decay", x->envelopeParams.decay, value)
                 || setIf(name, "sustain", x->envelopeParams.sustain, value)
                 || setIf(name, "release", x->envelopeParams.release, value)
                 || setIf(name, "mode", x->envelopeParams.env_mode, value)
+                || setIf(name, "env_mode", x->envelopeParams.env_mode, value)
                 || setIf(name, "curve", x->envelopeParams.curve, value)
+                || setIf(name, "trigger", x->envelopeParams.trigger_mode, value)
+                || setIf(name, "trigger_mode", x->envelopeParams.trigger_mode, value)
+                || setIf(name, "auto_threshold", x->envelopeParams.auto_threshold_db, value)
+                || setIf(name, "auto_threshold_db", x->envelopeParams.auto_threshold_db, value)
                 || setIf(name, "velocity", x->envelopeParams.velocity, value)
                 || setIf(name, "depth", x->envelopeParams.vca_depth, value)
-                || setIf(name, "mix", x->envelopeParams.mix, value);
+                || setIf(name, "vca_depth", x->envelopeParams.vca_depth, value)
+                || setIf(name, "output", x->envelopeParams.output_gain, value)
+                || setIf(name, "output_gain", x->envelopeParams.output_gain, value)
+                || setIf(name, "mix", x->envelopeParams.mix, value)
+                || setIf(name, "temperature", x->envelopeParams.temperature, value)
+                || setIf(name, "pedal_mode", x->envelopeParams.pedal_mode, value)
+                || setIf(name, "supply", x->envelopeParams.supply_voltage, value)
+                || setIf(name, "supply_voltage", x->envelopeParams.supply_voltage, value);
     }
 
     return false;
@@ -346,11 +489,11 @@ void freeObject(PatinaPd* x)
     patina_envelope_generator_destroy(x->envelope);
 }
 
-void* newObject(t_symbol* engineSymbol)
+void* newObjectWithClass(t_class* klass, Engine engine)
 {
-    auto* x = reinterpret_cast<PatinaPd*>(pd_new(patinaClass));
+    auto* x = reinterpret_cast<PatinaPd*>(pd_new(klass));
     x->outlet = outlet_new(&x->object, &s_signal);
-    x->engine = parseEngine(engineSymbol);
+    x->engine = engine;
 
     x->delayParams = patina_delay_default_params();
     x->driveParams = patina_drive_default_params();
@@ -382,6 +525,45 @@ void* newObject(t_symbol* engineSymbol)
     return x;
 }
 
+void* newObject(t_symbol* engineSymbol)
+{
+    return newObjectWithClass(patinaClass, parseEngine(engineSymbol));
+}
+
+void* newDriveObject() { return newObjectWithClass(patinaDriveClass, Engine::drive); }
+void* newFilterObject() { return newObjectWithClass(patinaFilterClass, Engine::filter); }
+void* newDelayObject() { return newObjectWithClass(patinaDelayClass, Engine::delay); }
+void* newReverbObject() { return newObjectWithClass(patinaReverbClass, Engine::reverb); }
+void* newCompressorObject() { return newObjectWithClass(patinaCompressorClass, Engine::compressor); }
+void* newModulationObject() { return newObjectWithClass(patinaModulationClass, Engine::modulation); }
+void* newTapeObject() { return newObjectWithClass(patinaTapeClass, Engine::tape); }
+void* newEqObject() { return newObjectWithClass(patinaEqClass, Engine::eq); }
+void* newLimiterObject() { return newObjectWithClass(patinaLimiterClass, Engine::limiter); }
+void* newChannelStripObject() { return newObjectWithClass(patinaChannelStripClass, Engine::channelStrip); }
+void* newEnvelopeObject() { return newObjectWithClass(patinaEnvelopeClass, Engine::envelope); }
+
+void addMethods(t_class* klass)
+{
+    CLASS_MAINSIGNALIN(klass, PatinaPd, signalInlet);
+    class_addmethod(klass, reinterpret_cast<t_method>(dsp), gensym("dsp"), A_CANT, A_NULL);
+    class_addmethod(klass, reinterpret_cast<t_method>(param), gensym("param"), A_SYMBOL, A_FLOAT, A_NULL);
+    class_addmethod(klass, reinterpret_cast<t_method>(reset), gensym("reset"), A_NULL);
+    class_addmethod(klass, reinterpret_cast<t_method>(gate), gensym("gate"), A_FLOAT, A_NULL);
+    class_addfloat(klass, reinterpret_cast<t_method>(floatMessage));
+}
+
+t_class* makeAliasClass(const char* name, t_newmethod newMethod)
+{
+    auto* klass = class_new(gensym(name),
+                            newMethod,
+                            reinterpret_cast<t_method>(freeObject),
+                            sizeof(PatinaPd),
+                            CLASS_DEFAULT,
+                            A_NULL);
+    addMethods(klass);
+    return klass;
+}
+
 } // namespace
 
 extern "C" void patina_tilde_setup(void)
@@ -394,10 +576,17 @@ extern "C" void patina_tilde_setup(void)
                             A_DEFSYM,
                             A_NULL);
 
-    CLASS_MAINSIGNALIN(patinaClass, PatinaPd, signalInlet);
-    class_addmethod(patinaClass, reinterpret_cast<t_method>(dsp), gensym("dsp"), A_CANT, A_NULL);
-    class_addmethod(patinaClass, reinterpret_cast<t_method>(param), gensym("param"), A_SYMBOL, A_FLOAT, A_NULL);
-    class_addmethod(patinaClass, reinterpret_cast<t_method>(reset), gensym("reset"), A_NULL);
-    class_addmethod(patinaClass, reinterpret_cast<t_method>(gate), gensym("gate"), A_FLOAT, A_NULL);
-    class_addfloat(patinaClass, reinterpret_cast<t_method>(floatMessage));
+    addMethods(patinaClass);
+
+    patinaDriveClass = makeAliasClass("patina-drive~", reinterpret_cast<t_newmethod>(newDriveObject));
+    patinaFilterClass = makeAliasClass("patina-filter~", reinterpret_cast<t_newmethod>(newFilterObject));
+    patinaDelayClass = makeAliasClass("patina-delay~", reinterpret_cast<t_newmethod>(newDelayObject));
+    patinaReverbClass = makeAliasClass("patina-reverb~", reinterpret_cast<t_newmethod>(newReverbObject));
+    patinaCompressorClass = makeAliasClass("patina-compressor~", reinterpret_cast<t_newmethod>(newCompressorObject));
+    patinaModulationClass = makeAliasClass("patina-modulation~", reinterpret_cast<t_newmethod>(newModulationObject));
+    patinaTapeClass = makeAliasClass("patina-tape~", reinterpret_cast<t_newmethod>(newTapeObject));
+    patinaEqClass = makeAliasClass("patina-eq~", reinterpret_cast<t_newmethod>(newEqObject));
+    patinaLimiterClass = makeAliasClass("patina-limiter~", reinterpret_cast<t_newmethod>(newLimiterObject));
+    patinaChannelStripClass = makeAliasClass("patina-channelstrip~", reinterpret_cast<t_newmethod>(newChannelStripObject));
+    patinaEnvelopeClass = makeAliasClass("patina-envelope~", reinterpret_cast<t_newmethod>(newEnvelopeObject));
 }

@@ -1,5 +1,47 @@
 # CHANGELOG
 
+## 2026-07-08 — Public Pd External Expansion
+
+### Pure Data / PlugData
+
+- Published the expanded `patina~` Pure Data external surface to the public repository.
+- Added engine alias abstractions for direct Pd/PlugData help lookup:
+  - `[patina-drive~]`
+  - `[patina-filter~]`
+  - `[patina-delay~]`
+  - `[patina-reverb~]`
+  - `[patina-compressor~]`
+  - `[patina-modulation~]`
+  - `[patina-tape~]`
+  - `[patina-eq~]`
+  - `[patina-limiter~]`
+  - `[patina-channelstrip~]`
+  - `[patina-envelope~]`
+- Added matching `patina-<engine>~-help.pd` files so option-click help can open the engine-specific documentation instead of the common `[patina~]` help.
+- Regenerated every `patina~` and `patina-<engine>~` help patch as a clickable parameter reference.
+- Removed local development paths from public Pd help patches.
+
+### Parameter Coverage
+
+- Expanded Pd `param` message coverage to match the public C API engine parameter surface, including:
+  - Reverb `type` switching: `0=Spring`, `1=Plate`
+  - Reverb spring controls: `tension`, `drip`, `springs`
+  - Reverb plate controls: `predelay`, `damping`, `diffusion`, `mod_depth`
+  - Filter `type/type2`, `slope/slope2`, second-filter controls, and serial/parallel `routing`
+  - Delay BBD, aging, compander, and chorus controls
+  - Modulation phaser/tremolo/chorus controls
+  - Tape aging, transformer, speed, and tone controls
+  - EQ band enables/frequencies/gains/Q controls
+  - Channel strip preamp, EQ, gate, trim, and supply controls
+  - Envelope mode/curve/trigger/gate controls
+
+### Packaging
+
+- Updated the Pd CMake install step to install the external binary plus Pd help and abstraction files into `lib/pd/extra`.
+- `VocoderBand` remains **Experiment** and is still not exposed through the Pd external.
+
+---
+
 ## 2026-07-08 — Pd External and Binding Surface Alignment
 
 ### Pure Data External

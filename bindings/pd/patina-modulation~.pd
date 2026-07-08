@@ -1,0 +1,8 @@
+#N canvas 260 160 360 220 12;
+#X obj 40 40 inlet~;
+#X obj 140 40 inlet;
+#X obj 40 105 patina~ modulation;
+#X obj 40 165 outlet~;
+#X connect 0 0 2 0;
+#X connect 1 0 2 0;
+#X connect 2 0 3 0;

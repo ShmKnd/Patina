@@ -60,3 +60,22 @@ The first Pd surface is mono and engine-oriented:
 
 Parameters are sent with `param <name> <value>` messages. Envelope gate control
 uses `gate 1` and `gate 0`.
+
+For direct engine-specific option-click help, the public package also includes
+alias abstraction files:
+
+- `[patina-drive~]`
+- `[patina-filter~]`
+- `[patina-delay~]`
+- `[patina-reverb~]`
+- `[patina-compressor~]`
+- `[patina-modulation~]`
+- `[patina-tape~]`
+- `[patina-eq~]`
+- `[patina-limiter~]`
+- `[patina-channelstrip~]`
+- `[patina-envelope~]`
+
+The Pd/PlugData help lookup is class-name based, so `[patina~ filter]` opens the
+common `patina~-help.pd` patch while `[patina-filter~]` opens
+`patina-filter~-help.pd`.
