@@ -20,6 +20,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(PATINA_BUILD_TESTS "Build unit tests" OFF)
 option(PATINA_BUILD_STATIC_LIB "Build single static library archive (libPatina.a)" ON)
 option(PATINA_BUILD_C_BINDINGS "Build C API shared/static library" OFF)
+option(PATINA_BUILD_PD_EXTERNALS "Build Pure Data external modules" OFF)
 
 # ============================================================================
 # Main Library Target
@@ -111,6 +112,41 @@ if(PATINA_BUILD_C_BINDINGS)
 endif()
 
 # ============================================================================
+# Pure Data Externals (Optional)
+# ============================================================================
+
+if(PATINA_BUILD_PD_EXTERNALS)
+    set(PD_INCLUDE_DIR "" CACHE PATH "Directory containing Pure Data m_pd.h")
+    if(NOT EXISTS "${PD_INCLUDE_DIR}/m_pd.h")
+        message(FATAL_ERROR "PATINA_BUILD_PD_EXTERNALS requires -DPD_INCLUDE_DIR=/path/to/pd/src containing m_pd.h")
+    endif()
+
+    add_library(patina_tilde MODULE
+        ${CMAKE_CURRENT_SOURCE_DIR}/bindings/pd/patina_pd.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/bindings/c/patina_c.cpp
+    )
+    target_include_directories(patina_tilde PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/bindings/c
+        ${PD_INCLUDE_DIR}
+    )
+    target_compile_features(patina_tilde PRIVATE cxx_std_17)
+    set_target_properties(patina_tilde PROPERTIES PREFIX "" OUTPUT_NAME "patina~")
+
+    if(APPLE)
+        set_target_properties(patina_tilde PROPERTIES SUFFIX ".pd_darwin")
+        target_link_options(patina_tilde PRIVATE "-undefined" "dynamic_lookup")
+    elseif(UNIX)
+        set_target_properties(patina_tilde PROPERTIES SUFFIX ".pd_linux")
+    elseif(WIN32)
+        set_target_properties(patina_tilde PROPERTIES SUFFIX ".dll")
+    endif()
+
+    install(TARGETS patina_tilde LIBRARY DESTINATION lib/pd/extra)
+    message(STATUS "  Build Pd Externals: ON")
+endif()
+
+# ============================================================================
 # Tests (Optional)
 # ============================================================================
 
@@ -184,6 +220,7 @@ message(STATUS "  C++ Standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "  Build Static Lib: ${PATINA_BUILD_STATIC_LIB}")
 message(STATUS "  Build Tests: ${PATINA_BUILD_TESTS}")
 message(STATUS "  Build C Bindings: ${PATINA_BUILD_C_BINDINGS}")
+message(STATUS "  Build Pd Externals: ${PATINA_BUILD_PD_EXTERNALS}")
 message(STATUS "")
 message(STATUS "Usage in CMake projects:")
 message(STATUS "  find_package(Patina REQUIRED)")

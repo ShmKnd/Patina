@@ -22,6 +22,7 @@ Patina is a general-purpose analog-modeling DSP library that emulates BBD delays
 - **11 ready-to-use effect engines** — delay, drive, reverb, compressor, modulation, tape, channel strip, EQ, limiter, filter, envelope generator
 - **Expanded filter circuits** — ZDF transistor ladders, OTA Sallen-Key, OTA ladder, 3-pole resonant ladder, all-pass, and passive LC filters
 - **Experiment modules** — VocoderBand is available as an L3 experiment and should be treated as exploratory API
+- **Bindings** — C API, Rust crate, and optional Pure Data `[patina~]` external
 - **Multi-channel** — stereo and arbitrary channel counts
 - **Audio-thread safe** — RAII denormal suppression (FTZ/DAZ), NaN/Inf sanitization, zero-fill for excess channels
 
@@ -110,6 +111,17 @@ reverb.processBlock(input, output, 2, numSamples, p);
 
 See [docs/API_REFERENCE.md](docs/API_REFERENCE.md) for the full API, and `examples/` for complete working samples.
 
+## Bindings
+
+Patina includes three integration surfaces:
+
+- `bindings/c`: stable C ABI using opaque handles for the L4 engine layer
+- `bindings/rust`: safe Rust wrappers over the C ABI
+- `bindings/pd`: optional Pure Data `[patina~]` external
+
+`VocoderBand` is an Experiment module and is not exported through the C API,
+Rust safe wrapper, or Pd external in this release.
+
 ## Architecture
 
 Patina models analog circuits in a strict **4-layer chain**:
@@ -195,7 +207,8 @@ Patina/
 ├── include/
 │   └── patina.h       # Aggregate header
 ├── bindings/
-│   ├── c/             # C API (opaque handle, 7 engines)
+│   ├── c/             # C API (opaque handles for stable L4 engines)
+│   ├── pd/            # Pure Data external ([patina~])
 │   └── rust/          # Rust crate (patina-dsp)
 ├── examples/          # CUI samples — WAV output, no JUCE required
 ├── tests/             # Catch2 v3 (55+ test files)

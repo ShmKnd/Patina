@@ -26,8 +26,14 @@ use std::ptr::NonNull;
 // ============================================================================
 
 pub use ffi::{
-    PATINA_COMP_FET, PATINA_COMP_PHOTO, PATINA_COMP_VARIABLE_MU, PATINA_MOD_CHORUS,
-    PATINA_MOD_PHASER, PATINA_MOD_TREMOLO, PATINA_REVERB_PLATE, PATINA_REVERB_SPRING,
+    PATINA_COMP_FET, PATINA_COMP_PHOTO, PATINA_COMP_VARIABLE_MU, PATINA_DRIVE_DIODE,
+    PATINA_DRIVE_TAPE, PATINA_DRIVE_TUBE, PATINA_DRIVE_WAVE, PATINA_ENV_CURVE_LINEAR,
+    PATINA_ENV_CURVE_RC, PATINA_ENV_MODE_AD, PATINA_ENV_MODE_ADSR, PATINA_ENV_MODE_AR,
+    PATINA_ENV_TRIGGER_AUTO, PATINA_ENV_TRIGGER_EXTERNAL, PATINA_FILTER_12DB,
+    PATINA_FILTER_18DB, PATINA_FILTER_24DB, PATINA_FILTER_6DB, PATINA_FILTER_BP,
+    PATINA_FILTER_HP, PATINA_FILTER_LADDER, PATINA_FILTER_LP, PATINA_LIM_FET,
+    PATINA_LIM_OPTO, PATINA_LIM_VCA, PATINA_MOD_CHORUS, PATINA_MOD_PHASER,
+    PATINA_MOD_TREMOLO, PATINA_REVERB_PLATE, PATINA_REVERB_SPRING,
 };
 
 // ============================================================================
@@ -384,5 +390,17 @@ mod tests {
 
         let p = ModulationParams::default();
         assert_eq!(p.r#type, PATINA_MOD_PHASER);
+
+        let p = LimiterParams::default();
+        assert_eq!(p.r#type, PATINA_LIM_VCA);
+
+        let p = FilterParams::default();
+        assert_eq!(p.filter1_type, PATINA_FILTER_LP);
+        assert_eq!(p.filter1_slope, PATINA_FILTER_12DB);
+
+        let p = EnvelopeGeneratorParams::default();
+        assert_eq!(p.env_mode, PATINA_ENV_MODE_ADSR);
+        assert_eq!(p.curve, PATINA_ENV_CURVE_RC);
+        assert_eq!(p.trigger_mode, PATINA_ENV_TRIGGER_EXTERNAL);
     }
 }

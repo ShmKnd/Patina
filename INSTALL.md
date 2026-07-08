@@ -111,6 +111,32 @@ cargo test
 > `build.rs` uses the `cc` crate to automatically compile `patina_c.cpp`,
 > so a prior CMake build is not required.
 
+### Pure Data External
+
+Pass the Pure Data source/include directory that contains `m_pd.h`:
+
+```bash
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DPATINA_BUILD_PD_EXTERNALS=ON \
+      -DPD_INCLUDE_DIR=/path/to/pure-data/src \
+      ..
+cmake --build . --target patina_tilde
+```
+
+The external is emitted as `patina~.pd_darwin`, `patina~.pd_linux`, or
+`patina~.dll` depending on the host platform.
+
+Example objects:
+
+```pd
+[patina~ drive]
+[patina~ filter]
+[patina~ delay]
+```
+
+Parameters use `param <name> <value>` messages, and `[patina~ envelope]` also
+accepts `gate 1` / `gate 0`.
+
 ### Running Examples
 
 ```bash

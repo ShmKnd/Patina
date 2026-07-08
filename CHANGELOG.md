@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## 2026-07-08 — Pd External and Binding Surface Alignment
+
+### Pure Data External
+
+- Added `bindings/pd/patina_pd.cpp`, an optional mono `[patina~]` Pure Data external backed by the Patina C API.
+- Supported creation forms: `[patina~ drive]`, `[patina~ filter]`, `[patina~ delay]`, `[patina~ reverb]`, `[patina~ compressor]`, `[patina~ modulation]`, `[patina~ tape]`, `[patina~ eq]`, `[patina~ limiter]`, `[patina~ channelstrip]`, and `[patina~ envelope]`.
+- Added message controls using `param <name> <value>`, plus `gate 1` / `gate 0` for the envelope engine.
+- Added `PATINA_BUILD_PD_EXTERNALS` and `PD_INCLUDE_DIR` CMake support. The target builds `patina~.pd_darwin`, `patina~.pd_linux`, or `patina~.dll` depending on platform.
+
+### C / Rust Binding Alignment
+
+- Fixed the C binding implementation so `patina_delay_create`, `patina_delay_destroy`, `patina_delay_prepare`, `patina_delay_reset`, and `patina_delay_process` are compiled as real exported functions instead of being swallowed by an unterminated section comment.
+- Verified the C binding archive now exports delay and version symbols including `patina_delay_create`, `patina_delay_process`, and `patina_version`.
+- Updated the Rust crate version from `1.0.0` to `1.1.0`.
+- Added Rust FFI constants for C API limiter, filter, drive-stage, and envelope enums: `PATINA_LIM_*`, `PATINA_FILTER_*`, `PATINA_DRIVE_*`, and `PATINA_ENV_*`.
+- Re-exported those constants from the safe Rust wrapper and expanded Rust default-param tests to cover limiter, filter, and envelope defaults.
+- Performed a mechanical C/Rust function-surface comparison: C declares 75 `patina_*` functions and Rust declares the same 75 extern functions, with no missing or extra Rust declarations.
+
+### Documentation
+
+- Added `bindings/pd/README.md` with Pd build and usage notes.
+- Added `docs/BINDINGS_STATUS.md` documenting the current C API, Rust binding, and Pd external surface.
+- Clarified that `VocoderBand` remains an **Experiment** module and is intentionally not exported through the C API, Rust safe wrapper, or Pd external in this pass.
+
+### Validation
+
+- Built `patina_c_static` with `PATINA_BUILD_C_BINDINGS=ON`.
+- Built `patina~.pd_darwin` against a temporary Pure Data `m_pd.h` include copy to validate the external target and C++ implementation.
+- Ran the existing C++ test suite: `674/674` tests passing.
+- Rust tests were not run locally because `cargo` is not installed in this environment.
+
+---
+
 ## 2026-07-08 — Patina 1.1.0 Dev/Public Inventory Sync
 
 ### Version

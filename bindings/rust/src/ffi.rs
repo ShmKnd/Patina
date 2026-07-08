@@ -316,6 +316,35 @@ pub const PATINA_MOD_PHASER: c_int = 0;
 pub const PATINA_MOD_TREMOLO: c_int = 1;
 pub const PATINA_MOD_CHORUS: c_int = 2;
 
+pub const PATINA_LIM_FET: c_int = 0;
+pub const PATINA_LIM_VCA: c_int = 1;
+pub const PATINA_LIM_OPTO: c_int = 2;
+
+pub const PATINA_FILTER_LP: c_int = 0;
+pub const PATINA_FILTER_HP: c_int = 1;
+pub const PATINA_FILTER_BP: c_int = 2;
+pub const PATINA_FILTER_LADDER: c_int = 3;
+
+pub const PATINA_FILTER_6DB: c_int = 0;
+pub const PATINA_FILTER_12DB: c_int = 1;
+pub const PATINA_FILTER_18DB: c_int = 2;
+pub const PATINA_FILTER_24DB: c_int = 3;
+
+pub const PATINA_DRIVE_TUBE: c_int = 0;
+pub const PATINA_DRIVE_DIODE: c_int = 1;
+pub const PATINA_DRIVE_WAVE: c_int = 2;
+pub const PATINA_DRIVE_TAPE: c_int = 3;
+
+pub const PATINA_ENV_MODE_ADSR: c_int = 0;
+pub const PATINA_ENV_MODE_AD: c_int = 1;
+pub const PATINA_ENV_MODE_AR: c_int = 2;
+
+pub const PATINA_ENV_CURVE_RC: c_int = 0;
+pub const PATINA_ENV_CURVE_LINEAR: c_int = 1;
+
+pub const PATINA_ENV_TRIGGER_EXTERNAL: c_int = 0;
+pub const PATINA_ENV_TRIGGER_AUTO: c_int = 1;
+
 /* ========================================================================== */
 /*  Extern declarations                                                       */
 /* ========================================================================== */

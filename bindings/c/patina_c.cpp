@@ -479,7 +479,10 @@ PatinaEnvelopeGeneratorParams patina_envelope_generator_default_params(void) {
 }
 
 /* ========================================================================== */
-/*  BBD Delay Engine(void) {
+/*  BBD Delay Engine                                                          */
+/* ========================================================================== */
+
+PatinaDelayEngine patina_delay_create(void) {
     return reinterpret_cast<PatinaDelayEngine>(new(std::nothrow) patina::BbdDelayEngine());
 }
 void patina_delay_destroy(PatinaDelayEngine h) {
