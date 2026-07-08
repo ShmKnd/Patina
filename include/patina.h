@@ -76,8 +76,11 @@
 #include "../dsp/circuits/filters/LadderFilter.h"
 #include "../dsp/circuits/filters/PhaserStage.h"
 #include "../dsp/circuits/filters/OtaSKFilter.h"
+#include "../dsp/circuits/filters/OtaLadderFilter.h"
+#include "../dsp/circuits/filters/AcidLadderFilter.h"
 #include "../dsp/circuits/filters/DiodeLadderFilter.h"
 #include "../dsp/circuits/filters/AnalogAllPass.h"
+#include "../dsp/circuits/filters/AllPassFilter.h"
 #include "../dsp/circuits/filters/PassiveLCFilter.h"
 
 // --- Saturation ---

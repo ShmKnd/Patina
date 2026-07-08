@@ -31,7 +31,7 @@ public:
         float temperature = 25.0f;   // operating temperature (°C)
     };
 
-    LadderFilter() noexcept : rng(31), normalDist(0.0, 1.0)
+    LadderFilter() noexcept : rng(31)
     {
         // 4-stage BJT differential pairs (variation via different seeds per stage)
         for (int i = 0; i < 4; ++i)
@@ -46,7 +46,6 @@ public:
         for (auto& ch : stage)
         {
             std::fill(std::begin(ch.s), std::end(ch.s), 0.0);
-            ch.delay = 0.0;
             std::fill(std::begin(ch.interStageCap), std::end(ch.interStageCap), 0.0);
         }
         updateCoefficients(1000.0f, 0.0f, 25.0f);
@@ -62,7 +61,6 @@ public:
         for (auto& ch : stage)
         {
             std::fill(std::begin(ch.s), std::end(ch.s), 0.0);
-            ch.delay = 0.0;
             std::fill(std::begin(ch.interStageCap), std::end(ch.interStageCap), 0.0);
         }
     }
@@ -85,43 +83,46 @@ public:
         const size_t ch = (size_t)std::clamp(channel, 0, (int)stage.size() - 1);
         auto& st = stage[ch];
 
-        const double driveGain = 1.0 + driveAmount * 3.0;
-        double input = std::tanh((double)x * driveGain);
+        const double driveGain = 1.0 + (double)driveAmount * 3.0;
+        double input = BJT_Primitive::saturate((double)x * driveGain);
 
-        // --- Drive-dependent resonance damping (Q decreases on large signals) ---
-        double inputMag = std::abs(input);
-        double resDamping = 1.0 / (1.0 + inputMag * kResonanceDampingCoeff);
-        double effectiveReso = resonanceScaled * resDamping;
+        // ZDF 4-pole transistor ladder.
+        // Solve for y3 without unit delay by substituting stage equations:
+        //   y_i = G * (m_i * tanh(y_{i-1}) + s_i / g)  [linear approx: tanh ≈ id]
+        //   y3 * (1 + k*G^4) = G^4*input + G^4*s0/g + G^3*s1/g + G^2*s2/g + G*s3/g
+        const double gInv = (g > 1e-10) ? 1.0 / g : 0.0;
+        const double G2 = G * G, G3 = G2 * G, G4 = G3 * G;
+        const double S = G4 * st.s[0] * gInv + G3 * st.s[1] * gInv
+                       + G2 * st.s[2] * gInv + G  * st.s[3] * gInv;
+        const double y3_zdf = (G4 * input + S) / (1.0 + resonanceScaled * G4);
 
-        // feedback (with unit delay)
-        input -= effectiveReso * st.delay;
+        // Effective input after ZDF resonance feedback
+        double x_in = input - resonanceScaled * y3_zdf;
 
-        // 4-stage cascaded 1-pole LPF — differential pair nonlinearity + mismatch via BJT_Primitive
+        // 4-stage sequential processing with BJT nonlinearity and mismatch
         for (int i = 0; i < 4; ++i)
         {
-            double s = st.s[i];
-            // BJT primitive's integrate: gm mismatch + tanh saturation
-            double y = stageBjt[i].integrate(input, s, g);
-            st.s[i] = y;
+            const double m = stageBjt[i].getMismatch();
+            // TPT 1-pole integrator with BJT tanh nonlinearity
+            const double y = G * (m * BJT_Primitive::saturate(x_in) + st.s[i] * gInv);
 
-            // inter-stage coupling capacitance (coupled via BJT primitive)
+            // Inter-stage capacitive coupling (minor HF rolloff, applied to signal passed forward)
+            double y_out = y;
             if (i < 3)
-            {
-                y = stageBjt[i].interStageCoupling(y, st.interStageCap[i]);
-                st.s[i] = y;
-            }
+                y_out = stageBjt[i].interStageCoupling(y, st.interStageCap[i]);
 
-            // Thermal noise injection (BJT material properties)
-            double signalLevel = std::abs(y);
+            // Thermal noise (BJT Johnson-Nyquist)
+            double signalLevel = std::abs(y_out);
             if (signalLevel > 1e-10)
-                y += normalDist(rng) * stageBjt[i].getSpec().thermalNoise * std::min(1.0, signalLevel);
-            st.s[i] = FastMath::sanitize(y);
+                y_out += fastNoise(rng) * stageBjt[i].getSpec().thermalNoise * std::min(1.0, signalLevel);
 
-            input = y;
+            // TPT state update: s_new = 2*y - s_old
+            st.s[i] = FastMath::sanitize(2.0 * y - st.s[i]);
+
+            x_in = y_out;
         }
 
-        st.delay = st.s[3];
-        return (float)st.s[3];
+        return (float)FastMath::sanitize(x_in);
     }
 
     inline float process(int channel, float x, const Params& params) noexcept
@@ -143,12 +144,11 @@ private:
     BJT_Primitive stageBjt[4];  // 4-stage BJT differential pairs
 
     // === Circuit constants (derived from BJT spec) ===
-    static constexpr double kResonanceDampingCoeff  = 0.5;    // large-signal resonance damping strength
     static constexpr double kSupplyVoltageNominal   = 12.0;   // Nominal supply voltage (V)
 
     void updateCoefficients(float fc, float r, float temperature = 25.0f) noexcept
     {
-        freq = std::clamp((double)fc, 20.0, sampleRate * 0.49);
+        freq = std::clamp((double)fc, 20.0, sampleRate * 0.45);
         reso = std::clamp((double)r, 0.0, 1.0);
         lastTemp = temperature;
 
@@ -157,18 +157,21 @@ private:
         double effectiveFreq = freq * tempScale;
 
         // Slight supply voltage fluctuation (±0.1% random)
-        double supplyJitter = 1.0 + normalDist(rng) * 0.001;
-        effectiveFreq *= supplyJitter;
+        double supplyJitter = 1.0 + fastNoise(rng) * 0.001;
+        effectiveFreq = std::clamp(effectiveFreq * supplyJitter, 20.0, sampleRate * 0.45);
 
-        g = 1.0 - std::exp(-2.0 * 3.14159265358979323846 * effectiveFreq / sampleRate);
+        // TPT pre-warped g coefficient: enables ZDF self-oscillation at reso=1.0
+        // (replaces forward-Euler 1-exp formula which could never reach unit circle)
+        g = std::tan(3.14159265358979323846 * effectiveFreq / sampleRate);
+        G = g / (1.0 + g);
+
         resonanceScaled = reso * 4.0;
     }
 
     struct ChannelState
     {
         double s[4] = {};
-        double delay = 0.0;
-        double interStageCap[3] = {}; // inter-stage coupling capacitance state
+        double interStageCap[3] = {}; // inter-stage capacitance state
     };
 
     double sampleRate = PartsConstants::defaultSampleRate;
@@ -176,8 +179,16 @@ private:
     double reso = 0.0;
     float lastTemp = 25.0f;
     double g = 0.0;
+    double G = 0.0;   // TPT single-pole coefficient g/(1+g)
     double resonanceScaled = 0.0;
     std::vector<ChannelState> stage;
     std::minstd_rand rng;
-    std::normal_distribution<double> normalDist;
+    std::normal_distribution<double> normalDist;  // unused placeholder for linker compat
+    static double fastNoise (std::minstd_rand& r) noexcept
+    {
+        constexpr double kInv = 1.0 / 2147483648.0;
+        const double s = ((double)(int)r() + (double)(int)r()
+                        + (double)(int)r() + (double)(int)r()) * kInv;
+        return (s - 2.0) * 1.7320508;
+    }
 };

@@ -179,6 +179,18 @@ public:
                 // Output level
                 wet *= params.outputLevel;
 
+                // Soft-limit to prevent +dBFS saturation at extreme resonance.
+                // Transparent below ~-1.4 dBFS (0.85); smoothly limits above.
+                {
+                    const float kT = 0.85f;
+                    const float absW = std::abs(wet);
+                    if (absW > kT)
+                    {
+                        const float sign = wet >= 0.0f ? 1.0f : -1.0f;
+                        wet = sign * (kT + (1.0f - kT) * FastMath::fastTanhf((absW - kT) / (1.0f - kT)));
+                    }
+                }
+
                 // Output stage — pedal mode only
                 if (params.pedalMode)
                     wet = outputStage.process(ch, wet, params.supplyVoltage);
@@ -249,28 +261,39 @@ private:
                 break;
         }
 
-        // --- Volume drop correction by resonance ---
-        // At high resonance, passband energy decreases
-        // （Only the peak area is amplified; overall RMS decreases）
-        // resonance 0.0→1.0 gives up to ~4dB of compensation
+        // --- Resonance compensation ---
+        // At low resonance: passband narrows slightly → small positive boost
+        // At high resonance: resonance peak dominates and INCREASES output level
+        //   → apply attenuation to prevent +dBFS saturation
+        // SVF Q = 0.5 + reso*19.5, so reso=1.0 gives Q=20 (≈+26dB peak potential)
         float resoCompDb = 0.0f;
         if (type != FilterType::Ladder)
         {
-            // SVF type: higher resonance narrows the passband, reducing volume
-            resoCompDb = resonance * resonance * 4.0f * sf;
+            // SVF type: crossover near resonance=0.5
+            //   reso 0→0.5: up to +1*sf dB (mild boost for passband narrowing)
+            //   reso 0.5→1.0: attenuate to counteract growing resonance peak
+            const float pivot = 0.5f;
+            if (resonance <= pivot)
+                resoCompDb = (resonance / pivot) * sf;          // 0 → +sf dB
+            else
+                resoCompDb = sf - (resonance - pivot) * 22.0f;  // → ~-10dB at reso=1
         }
         else
         {
-            // Ladder: volume drops significantly just before self-oscillation
-            resoCompDb = resonance * resonance * 5.0f;
+            // Ladder: self-oscillation builds above resonance≈0.7
+            const float pivot = 0.7f;
+            if (resonance <= pivot)
+                resoCompDb = (resonance / pivot) * 3.0f;         // 0 → +3dB
+            else
+                resoCompDb = 3.0f - (resonance - pivot) * 20.0f; // → -3dB at reso=1
         }
 
         float compDb = cutoffCompDb + resoCompDb;
-        compDb = std::min(compDb, 10.0f);  // Maximum ~10dB
+        compDb = std::clamp(compDb, -12.0f, 10.0f);  // allow attenuation up to -12dB
 
-        // Compensation gain is always >= 1.0 (never reduces volume, only boosts)
+        // Allow gain both above and below 1.0 (attenuation needed at high resonance)
         float gain = std::pow(10.0f, compDb / 20.0f);
-        return std::max(gain, 1.0f);
+        return std::max(gain, 0.05f);
     }
 
     // Filter processing dispatch

@@ -20,6 +20,8 @@ Patina is a general-purpose analog-modeling DSP library that emulates BBD delays
 - **4-layer architecture** — Constants → Parts → Circuits → Engines with strict downward-only dependency
 - **15 analog part primitives** — OTA, JFET, BJT, diode, vacuum tube, transformer, tape, photocell, RC element, op-amp, VCA, inductor, power pentode, vactrol, analog VCO
 - **11 ready-to-use effect engines** — delay, drive, reverb, compressor, modulation, tape, channel strip, EQ, limiter, filter, envelope generator
+- **Expanded filter circuits** — ZDF transistor ladders, OTA Sallen-Key, OTA ladder, 3-pole resonant ladder, all-pass, and passive LC filters
+- **Experiment modules** — VocoderBand is available as an L3 experiment and should be treated as exploratory API
 - **Multi-channel** — stereo and arbitrary channel counts
 - **Audio-thread safe** — RAII denormal suppression (FTZ/DAZ), NaN/Inf sanitization, zero-fill for excess channels
 
@@ -147,6 +149,18 @@ Each primitive encapsulates real-device physics: temperature dependence, manufac
 | `PowerPentode` | Power pentode tube model | `EL34()`, `6L6GC()` |
 | `VactrolPrimitive` | Vactrol / opto-resistor element | `VactrolDefault()` |
 | `AnalogVCO` | Voltage-controlled oscillator primitive | `Saw()`, `Triangle()` |
+
+### Circuit Modules (L3)
+
+| Module | Description |
+|---|---|
+| `OtaSKFilter` | OTA Sallen-Key filter, stabilized with a TPT SVF-style solver |
+| `OtaLadderFilter` | 4-pole OTA ladder filter with ZDF/TPT integration |
+| `AcidLadderFilter` | 3-pole resonant transistor ladder filter with input HPF and BP blend |
+| `LadderFilter` | 4-pole transistor ladder filter, updated to ZDF/TPT processing |
+| `DiodeLadderFilter` | Diode ladder filter, updated to ZDF/TPT processing |
+| `AllPassFilter` | Cascadable 1st-order TPT all-pass section |
+| `VocoderBand` | Experiment: single vocoder band circuit for evaluation |
 
 ### Effect Engines (L4)
 

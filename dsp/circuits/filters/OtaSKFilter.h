@@ -32,6 +32,14 @@
 class OtaSKFilter
 {
 public:
+    struct Output
+    {
+        double lp = 0.0;
+        double bp = 0.0;
+        double hp = 0.0;
+        double notch = 0.0;
+    };
+
     enum class Mode : int
     {
         LowPass  = 0,
@@ -49,7 +57,7 @@ public:
     };
 
     OtaSKFilter() noexcept
-        : rng(41), normalDist(0.0, 1.0),
+        : rng(41),
           ota1(OTA_Primitive(OTA_Primitive::LM13700(), 211)),
           ota2(OTA_Primitive(OTA_Primitive::LM13700(), 212)),
           inputDiode(DiodePrimitive(DiodePrimitive::OtaInputDiode()))
@@ -89,44 +97,42 @@ public:
 
     void setMode(Mode m) noexcept { filterMode = m; }
 
-    // single sample processing
-    inline float process(int channel, float x, int modeOverride = -1) noexcept
+    inline Output processAll(int channel, float x) noexcept
     {
         const size_t ch = (size_t)std::clamp(channel, 0, (int)chState.size() - 1);
-        auto& st = chState[ch];
-        Mode m = (modeOverride >= 0) ? (Mode)modeOverride : filterMode;
 
-        // OTA input diode clipping (nonlinearity on large signals)
+        // OTA input protection diode clipping on large signals
+        // Uses DiodePrimitive (OtaInputDiode preset) matching physical circuit
         double v0 = (double)x;
         if (driveAmount > 0.001)
         {
-            double overdrive = 1.0 + driveAmount * 4.0;
-            v0 = std::tanh(v0 * overdrive) / overdrive * (1.0 + driveAmount * 0.5);
+            double scale = 1.0 + driveAmount * 4.0;
+            v0 = inputDiode.clip(v0 * scale, (double)lastTemp) / scale
+                 * (1.0 + driveAmount * 0.5);
         }
 
         // Thermal noise (using OTA primitive physical properties)
         double sigLevel = std::abs(v0);
         if (sigLevel > 1e-10)
-            v0 += normalDist(rng) * ota1.getSpec().thermalNoise * std::min(1.0, sigLevel);
+            v0 += fastNoise(rng) * ota1.getSpec().thermalNoise * std::min(1.0, sigLevel);
 
-        float result = 0.0f;
+        auto out = processSVF(chState[ch].svf, v0);
+        return { out.lp, out.bp, out.hp, out.lp + out.hp };
+    }
+
+    // single sample processing
+    inline float process(int channel, float x, int modeOverride = -1) noexcept
+    {
+        Mode m = (modeOverride >= 0) ? (Mode)modeOverride : filterMode;
+
+        auto out = processAll(channel, x);
         switch (m)
         {
-            case Mode::LowPass:
-                result = processLP(st.lp, v0);
-                break;
-            case Mode::HighPass:
-                result = processHP(st.hp, v0);
-                break;
-            case Mode::BandPass:
-            {
-                // HPF → LPF cascade (OTA-SK dual filter)
-                double hpOut = processHP(st.hp, v0);
-                result = processLP(st.lp, hpOut);
-                break;
-            }
+            case Mode::LowPass:  return (float)out.lp;
+            case Mode::HighPass:  return (float)out.hp;
+            case Mode::BandPass:  return (float)out.bp;
         }
-        return result;
+        return (float)out.lp;
     }
 
     inline float process(int channel, float x, const Params& params) noexcept
@@ -153,55 +159,55 @@ private:
     OTA_Primitive ota2;           // LM13700 OTA #2
     DiodePrimitive inputDiode;    // OTA-SK input protection diode
 
-    // circuit constants (derived from OTA/diode specs)
-    static constexpr double kMaxResonance    = 4.2;     // maximum k capable of reaching self-oscillation point
-
-    // Sallen-Key 2-pole filter state
+    // TPT SVF 2-pole filter state
     struct FilterState
     {
-        double s1 = 0.0;  // integrator 1
-        double s2 = 0.0;  // integrator 2
+        double s1 = 0.0;  // integrator 1 state (≈ band-pass)
+        double s2 = 0.0;  // integrator 2 state (≈ low-pass)
     };
 
     struct ChannelState
     {
-        FilterState lp;
-        FilterState hp;
+        FilterState svf;  // single unified state (LP/BP/HP from one pass)
     };
 
-    // --- LPF Sallen-Key (OTA) ---
-    inline float processLP(FilterState& st, double x) noexcept
+    struct SVFOut { double lp, bp, hp; };
+
+    // --- TPT SVF core with OTA nonlinear feedback ---
+    // Reference: Zavalishin "Art of VA Filter Design" §3.10 (ZDF base)
+    //
+    // Correct ZDF SVF derivation (substituting bp and lp into hp = x - k*bp - lp):
+    //   bp = s1 + g1*hp
+    //   lp = s2 + g2*bp = s2 + g2*s1 + g1*g2*hp
+    //   hp*(1 + k*g1 + g1*g2) = x - (k+g2)*s1 - s2
+    //
+    // The hp numerator must contain -(k+g2)*s1, NOT just -k*s1.
+    // Omitting the g2*s1 term causes instability at high fc:
+    //   eigenvalues |λ| > 1 for g > ~1 (cutoff above fs/4).
+    //
+    // OTA-SK character: the damping feedback (k*s1) passes through the OTA input
+    // protection diode (clipped). The integrator feed-forward path (g2*s1) is
+    // unclipped — it represents the linear integrator chain, not the feedback loop.
+    inline SVFOut processSVF(FilterState& st, double x) noexcept
     {
-        // OTA-SK LPF: OTA Sallen-Key with diode limiting in feedback
-        double input = x - resoK * st.s2;
+        const double g1 = gCoeff * ota1.getMismatch();
+        const double g2 = gCoeff * ota2.getMismatch();
 
-        // OTA integration: linear integration reflecting gm mismatch (large-signal saturation already handled by input drive stage)
-        double v1 = st.s1 + gCoeff * ota1.getMismatch() * (input - st.s1);
-        double v2 = st.s2 + gCoeff * ota2.getMismatch() * (v1 - st.s2);
+        // Nonlinear feedback: diode clips only the damping-path portion of s1.
+        // The g2*s1 integrator-path term stays linear (see derivation above).
+        const double s1_fb = inputDiode.feedbackClip(st.s1, (double)lastTemp);
 
-        st.s1 = v1;
-        st.s2 = v2;
-        return (float)v2;
-    }
+        const double denom = 1.0 + g1 * damping + g1 * g2;
+        const double hp  = (x - damping * s1_fb - g2 * st.s1 - st.s2) / denom;
+        const double bp  = g1 * hp + st.s1;
+        const double lp  = g2 * bp + st.s2;
 
-    // --- HPF Sallen-Key (OTA) ---
-    inline float processHP(FilterState& st, double x) noexcept
-    {
-        // OTA-SK HPF: input - 2×LP approximation
-        double input = x - resoK * st.s2;
-        double v1 = st.s1 + gCoeff * ota1.getMismatch() * (input - st.s1);
-        double v2 = st.s2 + gCoeff * ota2.getMismatch() * (v1 - st.s2);
-        st.s1 = v1;
-        st.s2 = v2;
-
-        // HP output: input - LP(2pole)
-        return (float)(x - v2);
-    }
-
-    // OTA saturation function → delegated to component primitive
-    inline double otaSaturate(double x) const noexcept
-    {
-        return ota1.saturate(x);
+        constexpr double kLim = 10.0;
+        const double ns1 = 2.0 * bp - st.s1;
+        const double ns2 = 2.0 * lp - st.s2;
+        st.s1 = std::isfinite(ns1) ? std::clamp(ns1, -kLim, kLim) : 0.0;
+        st.s2 = std::isfinite(ns2) ? std::clamp(ns2, -kLim, kLim) : 0.0;
+        return { lp, bp, hp };
     }
 
     void updateCoefficients(float fc, float r, float temperature = 25.0f) noexcept
@@ -210,31 +216,40 @@ private:
         reso = std::clamp((double)r, 0.0, 1.0);
         lastTemp = temperature;
 
-        // temperature-dependent gm scaling → obtained from OTA primitive
-        double gmScale = ota1.gmScale(temperature);
+        // temperature-dependent gm scaling
+        const double gmScale = ota1.gmScale(temperature);
+        const double effectiveFc = std::clamp(cutoffHz * gmScale, 20.0, sampleRate * 0.45);
 
-        double effectiveFc = cutoffHz * gmScale;
-        effectiveFc = std::clamp(effectiveFc, 20.0, sampleRate * 0.49);
-
-        // bilinear transform coefficient
+        // TPT SVF g coefficient: raw tan (not divided by (1+g))
         gCoeff = std::tan(3.14159265358979323846 * effectiveFc / sampleRate);
-        gCoeff = gCoeff / (1.0 + gCoeff);
 
-        // resonance → feedback coefficient
-        // OTA-SK is very aggressive: self-oscillation at reso=1.0
-        resoK = reso * kMaxResonance;
+        // Damping ↔ resonance mapping:
+        // Keep a small minimum damping so OTA notch (LP+HP) does not collapse
+        // to near all-pass at max resonance.
+        //   reso=0.0 → damping=2.0
+        //   reso=1.0 → damping=0.18
+        constexpr double dMin = 0.18;
+        constexpr double gamma = 1.2;
+        damping = dMin + (2.0 - dMin) * std::pow(1.0 - reso, gamma);
     }
 
-    double sampleRate = PartsConstants::defaultSampleRate;
-    double cutoffHz   = 1000.0;
-    double reso       = 0.0;
-    float  lastTemp   = 25.0f;
-    double gCoeff     = 0.0;
-    double resoK      = 0.0;
+    double sampleRate  = PartsConstants::defaultSampleRate;
+    double cutoffHz    = 1000.0;
+    double reso        = 0.0;
+    float  lastTemp    = 25.0f;
+    double gCoeff      = 0.0;
+    double damping     = 2.0;   // 0=self-oscillation, 2=overdamped
     double driveAmount = 0.0;
     Mode   filterMode  = Mode::LowPass;
 
     std::vector<ChannelState> chState;
     std::minstd_rand rng;
-    std::normal_distribution<double> normalDist;
+    std::normal_distribution<double> normalDist;  // unused placeholder
+    static double fastNoise (std::minstd_rand& r) noexcept
+    {
+        constexpr double kInv = 1.0 / 2147483648.0;
+        const double s = ((double)(int)r() + (double)(int)r()
+                        + (double)(int)r() + (double)(int)r()) * kInv;
+        return (s - 2.0) * 1.7320508;
+    }
 };

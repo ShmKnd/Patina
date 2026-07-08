@@ -59,11 +59,16 @@ public:
     // VCA gain (for FET Compressor): even harmonics during compression
     inline double vcaNonlinearity(double x, double gain) const noexcept
     {
-        double distortion = (1.0 - gain) * 0.1;
-        if (distortion < 0.001) return x;
-        double absX = std::abs(x);
-        if (absX < 0.01) return x;
-        return x + distortion * x * absX * 0.5;
+        const double distortion = (1.0 - gain) * 0.1;
+        // gain≈1.0 時はdistortionが実質0なので早期リターン（クリック防止）
+        // NOTE: |x|<0.01 によるハード閾値は除去済み。
+        //   旧コードで x=0.01 付近を信号が通過するたびに nl が不連続にオン/オフし、
+        //   アタック立ち上がり時に可聴ノイズ（クリック）を発生させていた。
+        //   nl ∝ x|x| なので小信号時は自然にゼロに近づくため、閾値ガードは不要。
+        if (distortion < 1e-9) return x;
+        const double nl   = distortion * x * std::abs(x) * 0.5;
+        const double fade = std::min(distortion / 0.002, 1.0);  // 0→1 over gain 1.0→0.98
+        return x + nl * fade;
     }
 
     // temperature-dependent Vp shift → frequency deviation

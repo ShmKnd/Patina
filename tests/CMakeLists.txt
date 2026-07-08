@@ -56,6 +56,8 @@ add_executable(Patina_tests
     test_capacitor_aging.cpp
     test_ota_sk_filter.cpp
     test_diode_ladder_filter.cpp
+    test_all_pass_filter.cpp
+    test_ota_ladder_filter.cpp
     test_analog_allpass.cpp
     test_photo_compressor.cpp
     test_fet_compressor.cpp

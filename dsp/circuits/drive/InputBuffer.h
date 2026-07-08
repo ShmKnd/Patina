@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <vector>
 #include <atomic>
 #include <cmath>
@@ -37,6 +37,12 @@ public:
         rcState.assign(nCh, 0.0);
         overloadRecovery.assign(nCh, 0.0);
         offsetDrift.assign(nCh, 0.0);
+        currentBiasNoise.assign(nCh, 0.0);
+        targetBiasNoise.assign(nCh, 0.0);
+        biasNoiseStep.assign(nCh, 0.0);
+        biasNoiseCounter.assign(nCh, 0);
+        driftCounter.assign(nCh, 0);
+        hasGaussianSpare = false;
         updateAlpha();
 
         // OpAmpPrimitive per channel (for slew rate limiting)
@@ -51,6 +57,12 @@ public:
         std::fill(rcState.begin(), rcState.end(), 0.0);
         std::fill(overloadRecovery.begin(), overloadRecovery.end(), 0.0);
         std::fill(offsetDrift.begin(), offsetDrift.end(), 0.0);
+        std::fill(currentBiasNoise.begin(), currentBiasNoise.end(), 0.0);
+        std::fill(targetBiasNoise.begin(), targetBiasNoise.end(), 0.0);
+        std::fill(biasNoiseStep.begin(), biasNoiseStep.end(), 0.0);
+        std::fill(biasNoiseCounter.begin(), biasNoiseCounter.end(), 0);
+        std::fill(driftCounter.begin(), driftCounter.end(), 0);
+        hasGaussianSpare = false;
         for (auto& amp : slewAmps_) amp.reset();
         overloadFlag.store(false, std::memory_order_relaxed);
     }
@@ -93,13 +105,16 @@ public:
         rcState[idx] = y;
 
         // 2. Input bias current noise (~30pA baseline × normalized by sqrt(BW))
-        //    Actual hardware: TL072=30pA typ, JRC4558=50nA typ
-        double biasNoise = normalDist(rng) * kBiasCurrentNoise;
-        y += biasNoise;
+        //    Updated at a lower rate and linearly interpolated. This preserves the
+        //    tiny analog-noise character while avoiding expensive Gaussian RNG calls
+        //    on every sample/channel.
+        y += nextBiasNoise (idx);
 
         // 3. Input offset voltage drift (temperature random walk: ±150µV/°C)
-        offsetDrift[idx] += normalDist(rng) * kOffsetDriftRate;
-        offsetDrift[idx] *= kOffsetDriftDecay;  // Gradual center reversion
+        //    Drift is a slow process, so the random excitation is decimated while the
+        //    decay is still applied every sample. sqrt(interval) keeps the random-walk
+        //    variance close to the previous per-sample implementation.
+        updateOffsetDrift (idx);
         y += offsetDrift[idx];
 
         return applyHeadroom(ch, static_cast<float>(y));
@@ -121,9 +136,79 @@ private:
     static constexpr double kBiasCurrentNoise = 3e-8;    // 30pA × 1kΩ normalized ≈ 30nV
     static constexpr double kOffsetDriftRate = 1e-7;      // ±150µV/°C Temperature drift normalized
     static constexpr double kOffsetDriftDecay = 0.99999;   // Gradual decay of drift state
+    static constexpr int kBiasNoiseUpdateInterval = 4;     // Gaussian RNG decimation for bias noise
+    static constexpr int kDriftUpdateInterval = 64;        // Gaussian RNG decimation for slow offset drift
     static constexpr double kOverloadRecoveryRate = 0.002; // ~500samples to 95% recovery
     static constexpr double kAsymPosScale = 1.0;           // Positive-side saturation
     static constexpr double kAsymNegScale = 0.92;          // Negative side clips slightly earlier (PNP output stage asymmetry)
+
+
+
+    inline double nextUniformOpen01() noexcept
+    {
+        // minstd_rand::max() is small enough to convert exactly to double here.
+        // Clamp away from 0/1 so Box-Muller never sees log(0).
+        const double denom = static_cast<double>(std::minstd_rand::max()) + 1.0;
+        double u = (static_cast<double>(rng()) + 0.5) / denom;
+        return std::clamp(u, 1.0e-12, 1.0 - 1.0e-12);
+    }
+
+    inline double nextGaussian() noexcept
+    {
+        // Box-Muller with spare-value cache. This replaces std::normal_distribution
+        // in the audio hot path and guarantees both generated values are used.
+        if (hasGaussianSpare)
+        {
+            hasGaussianSpare = false;
+            return gaussianSpare;
+        }
+
+        constexpr double twoPi = 6.283185307179586476925286766559;
+        const double u1 = nextUniformOpen01();
+        const double u2 = nextUniformOpen01();
+        const double radius = std::sqrt(-2.0 * std::log(u1));
+        const double angle = twoPi * u2;
+
+        gaussianSpare = radius * std::sin(angle);
+        hasGaussianSpare = true;
+        return radius * std::cos(angle);
+    }
+
+    inline double nextBiasNoise(size_t idx) noexcept
+    {
+        if (idx >= currentBiasNoise.size())
+            return 0.0;
+
+        if (biasNoiseCounter[idx] <= 0)
+        {
+            biasNoiseCounter[idx] = kBiasNoiseUpdateInterval;
+            targetBiasNoise[idx] = nextGaussian() * kBiasCurrentNoise;
+            biasNoiseStep[idx] = (targetBiasNoise[idx] - currentBiasNoise[idx])
+                                / static_cast<double>(kBiasNoiseUpdateInterval);
+        }
+
+        currentBiasNoise[idx] += biasNoiseStep[idx];
+        --biasNoiseCounter[idx];
+        return currentBiasNoise[idx];
+    }
+
+    inline void updateOffsetDrift(size_t idx) noexcept
+    {
+        if (idx >= offsetDrift.size())
+            return;
+
+        if (driftCounter[idx] <= 0)
+        {
+            driftCounter[idx] = kDriftUpdateInterval;
+            offsetDrift[idx] += nextGaussian()
+                              * kOffsetDriftRate
+                              * std::sqrt(static_cast<double>(kDriftUpdateInterval));
+        }
+
+        --driftCounter[idx];
+        offsetDrift[idx] *= kOffsetDriftDecay;  // Gradual center reversion
+    }
+
 
     void updateAlpha() noexcept {
         const double sr = sampleRate;
@@ -206,6 +291,11 @@ private:
     std::vector<OpAmpPrimitive> slewAmps_;          // Per-channel slew rate limiting
     std::vector<double> overloadRecovery;   // Overload recovery state
     std::vector<double> offsetDrift;        // Offset drift state
+    std::vector<double> currentBiasNoise;   // Interpolated bias-noise value
+    std::vector<double> targetBiasNoise;    // Next bias-noise target
+    std::vector<double> biasNoiseStep;      // Per-sample interpolation step
+    std::vector<int> biasNoiseCounter;      // Samples remaining until next bias target
+    std::vector<int> driftCounter;          // Samples remaining until next drift excitation
     std::atomic<double> C_f;
     std::atomic<double> alpha{1.0};
     std::atomic<double> supplyV;
@@ -215,7 +305,9 @@ private:
     std::atomic<double> headroomKnee9V{PartsConstants::opAmp_headroomKnee9V};
     std::atomic<double> headroomKnee18V{PartsConstants::opAmp_headroomKnee18V};
 
-    // Noise generator (for bias current and drift)
-    mutable std::minstd_rand rng{42};
-    mutable std::normal_distribution<double> normalDist{0.0, 1.0};
+    // Noise generator (for bias current and drift).
+    // Custom Box-Muller pair cache avoids std::normal_distribution in the hot path.
+    std::minstd_rand rng{42};
+    bool hasGaussianSpare = false;
+    double gaussianSpare = 0.0;
 };

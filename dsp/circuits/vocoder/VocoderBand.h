@@ -77,6 +77,21 @@ public:
     };
 
 
+    VocoderBand() noexcept
+        : VocoderBand(Spec{})
+    {
+    }
+
+    explicit VocoderBand(const Spec& s) noexcept
+        : modOta(s.otaSpec, 211),
+          carOta(s.otaSpec, 212),
+          rectDiode(s.diodeSpec),
+          attackRC(s.R_att, s.C_env),
+          releaseRC(s.R_rel, s.C_env),
+          vca(s.vcaSpec, 500),
+          spec(s)
+    {
+    }
 
     // --------------------------------------------------------
     // prepare / reset
@@ -92,6 +107,7 @@ public:
 
         attackRC.prepare(sr);
         releaseRC.prepare(sr);
+        updateEnvelopeCoefficients();
 
         // [FIX 2] キャッシュ初期化
         cachedGCoeff = 0.0;
@@ -145,13 +161,12 @@ public:
         double rectified = rectDiode.clip(modBp);
         rectified = std::max(0.0, rectified);   // half-wave: keep positive only
 
-        //   b) asymmetric RC: charge fast (attack), discharge slow (release)
-        //   [FIX 3] release時は 0.0 を入力とする（GNDへの放電を正しくモデル化）
+        //   b) asymmetric per-channel RC: charge fast (attack), discharge slow (release)
         double& env = envState[ch];
         if (rectified > env)
-            env = attackRC.processLPF(rectified);   // fast charge toward rectified peak
+            env += attackCoeff * (rectified - env); // fast charge toward rectified peak
         else
-            env = releaseRC.processLPF(0.0);        // slow discharge toward GND
+            env += releaseCoeff * (0.0 - env);      // slow discharge toward GND
 
         // --- 4. Carrier BPF (OTA SVF, same gCoeff, independent OTA instance) ---
         const double carBp = processSVF(carState[ch], carOta,
@@ -214,6 +229,8 @@ private:
     double cachedGCoeff    = 0.0;
     double cachedCarGCoeff = 0.0;
     double cachedDamp      = 0.0;
+    double attackCoeff     = 0.0;
+    double releaseCoeff    = 0.0;
     float  lastCenterHz    = -1.0f;
     float  lastQ           = -1.0f;
     float  lastTemperature = -999.0f;
@@ -250,6 +267,14 @@ private:
     {
         double qClamped = std::clamp((double)q, 0.5, 30.0);
         return 1.0 / qClamped;
+    }
+
+    void updateEnvelopeCoefficients() noexcept
+    {
+        const double attackTau  = std::max(1e-9, spec.R_att * spec.C_env);
+        const double releaseTau = std::max(1e-9, spec.R_rel * spec.C_env);
+        attackCoeff  = 1.0 - std::exp(-1.0 / (attackTau * sr));
+        releaseCoeff = 1.0 - std::exp(-1.0 / (releaseTau * sr));
     }
 
     // --------------------------------------------------------

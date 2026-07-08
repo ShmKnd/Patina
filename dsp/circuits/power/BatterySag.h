@@ -68,6 +68,15 @@ public:
         sampleRate = std::max(1.0, sr);
         const size_t nCh = (size_t)std::max(1, numChannels);
         envState.assign(nCh, 0.0);
+
+        // sampleRate affects msToAlpha(), so any cached attack/release alpha
+        // computed under the old sampleRate is now stale.
+        cachedAttackMs = -1.0f;
+        cachedReleaseMs = -1.0f;
+        // Voc/Rint don't depend on sampleRate, but invalidate anyway for
+        // safety/consistency (cheap: only recomputed once on next process()).
+        cachedType = -1;
+        cachedLife = -1.0f;
     }
 
     void prepare(const patina::ProcessSpec& spec) noexcept
@@ -109,8 +118,19 @@ public:
         const auto& spec = batterySpecs[type];
 
         // --- Open-circuit voltage / internal resistance ---
-        const double Voc = getOpenCircuitVoltage(type, params.batteryLife);
-        const double Rint = getInternalResistance(type, params.batteryLife);
+        // getOpenCircuitVoltage()/getInternalResistance() use std::pow() and are
+        // pure functions of (type, batteryLife). Callers almost always pass the
+        // same (type, batteryLife) every sample (batteryLife rarely changes in
+        // real time), so cache the result and only recompute when they change.
+        if (type != cachedType || params.batteryLife != cachedLife)
+        {
+            cachedVoc = getOpenCircuitVoltage(type, params.batteryLife);
+            cachedRint = getInternalResistance(type, params.batteryLife);
+            cachedType = type;
+            cachedLife = params.batteryLife;
+        }
+        const double Voc = cachedVoc;
+        const double Rint = cachedRint;
 
         // --- Static voltage drop (circuit idle current portion)---
         const double iIdle = std::max(0.0, (double)params.loadCurrentMa) * 0.001;
@@ -121,8 +141,25 @@ public:
         if (sagAmt < 1e-6)
             return (float)Vstatic;
 
-        const double attAlpha = msToAlpha(std::max(0.1f, params.attackMs));
-        const double relAlpha = msToAlpha(std::max(0.1f, params.releaseMs));
+        // msToAlpha() uses std::exp() and only depends on (attackMs/releaseMs,
+        // sampleRate). attackMs/releaseMs are typically fixed pedal-voicing
+        // constants, so cache them the same way as Voc/Rint above.
+        const float attackMsClamped = std::max(0.1f, params.attackMs);
+        const float releaseMsClamped = std::max(0.1f, params.releaseMs);
+
+        if (attackMsClamped != cachedAttackMs)
+        {
+            cachedAttAlpha = msToAlpha(attackMsClamped);
+            cachedAttackMs = attackMsClamped;
+        }
+        if (releaseMsClamped != cachedReleaseMs)
+        {
+            cachedRelAlpha = msToAlpha(releaseMsClamped);
+            cachedReleaseMs = releaseMsClamped;
+        }
+
+        const double attAlpha = cachedAttAlpha;
+        const double relAlpha = cachedRelAlpha;
 
         const double absIn = std::abs((double)x);
         double& env = envState[ch];
@@ -189,4 +226,16 @@ private:
 
     double sampleRate = PartsConstants::defaultSampleRate;
     std::vector<double> envState;   // Envelope detector state
+
+    // Voc/Rint cache (invalidated when type or batteryLife changes, or on prepare()).
+    int cachedType = -1;
+    float cachedLife = -1.0f;
+    double cachedVoc = 0.0;
+    double cachedRint = 0.0;
+
+    // attAlpha/relAlpha cache (invalidated when attackMs/releaseMs change, or on prepare()).
+    float cachedAttackMs = -1.0f;
+    float cachedReleaseMs = -1.0f;
+    double cachedAttAlpha = 0.0;
+    double cachedRelAlpha = 0.0;
 };

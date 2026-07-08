@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <vector>
 #include <atomic>
 #include <algorithm>
@@ -19,7 +19,7 @@ class OutputStage
 {
 public:
     OutputStage() noexcept : sampleRate(PartsConstants::defaultSampleRate), alpha(1.0),
-        rng(42), normalDist(0.0, 1.0) {}
+        rng(42) { updateLoadAlpha(); }
 
     void prepare(int numChannels, double sr) noexcept
     {
@@ -30,8 +30,11 @@ public:
         prevY3.assign(nCh, 0.0);
         slewState.assign(nCh, 0.0);
         offsetDrift.assign(nCh, 0.0);
+        driftCounter.assign(nCh, 0);
+        hasGaussianSpare = false;
         prevOut.assign(nCh, 0.0);
         loadCapState.assign(nCh, 0.0);
+        updateLoadAlpha();
     }
 
     void prepare(const patina::ProcessSpec& spec) noexcept { prepare(spec.numChannels, spec.sampleRate); }
@@ -43,6 +46,8 @@ public:
         std::fill(prevY3.begin(), prevY3.end(), 0.0);
         std::fill(slewState.begin(), slewState.end(), 0.0);
         std::fill(offsetDrift.begin(), offsetDrift.end(), 0.0);
+        std::fill(driftCounter.begin(), driftCounter.end(), 0);
+        hasGaussianSpare = false;
         std::fill(prevOut.begin(), prevOut.end(), 0.0);
         std::fill(loadCapState.begin(), loadCapState.end(), 0.0);
     }
@@ -57,7 +62,11 @@ public:
     }
 
     // Output impedance setting (Ω) — affects interaction with load capacitance
-    void setOutputImpedance(double ohms) noexcept { outputImpedance = std::max(1.0, ohms); }
+    void setOutputImpedance(double ohms) noexcept
+    {
+        outputImpedance = std::max(1.0, ohms);
+        updateLoadAlpha();
+    }
 
     inline float process(int channel, float x, double supplyVoltage) noexcept
     {
@@ -77,11 +86,11 @@ public:
         double v = y3;
 
         // --- DC offset drift (input offset voltage variation with temperature)---
-        {
-            double noise = normalDist(rng) * kOffsetDriftRate;
-            offsetDrift[ch] = offsetDrift[ch] * kOffsetDriftDecay + noise;
-            v += offsetDrift[ch];
-        }
+        // Drift is slow, so the Gaussian excitation is decimated while decay is
+        // still applied every sample. sqrt(interval) keeps the random-walk variance
+        // close to the previous per-sample implementation.
+        updateOffsetDrift (ch);
+        v += offsetDrift[ch];
 
         // --- THD vs frequency: distortion increases at HF (open-loop gain roll-off model)---
         {
@@ -127,12 +136,10 @@ public:
 
         // --- LPF from output impedance × load capacitance (cable capacitance model)---
         {
-            // Typical cable capacitance: 100pF/m × 3m = 300pF
-            double RC = outputImpedance * kLoadCapacitance;
-            double dt = 1.0 / sampleRate;
-            double loadAlpha = dt / (RC + dt);
-            loadAlpha = std::clamp(loadAlpha, 0.01, 1.0);
-            loadCapState[ch] += loadAlpha * (v - loadCapState[ch]);
+            // outputImpedance and sampleRate only change via setOutputImpedance()/
+            // prepare(), so loadAlpha is precomputed there instead of being
+            // rederived (division) every sample here.
+            loadCapState[ch] += cachedLoadAlpha * (v - loadCapState[ch]);
             v = loadCapState[ch];
         }
 
@@ -152,19 +159,81 @@ private:
     static constexpr double kSlewRateVps        = 8e6;     // 8V/µs (Output buffer stage)
     static constexpr double kOffsetDriftRate     = 5e-8;    // DC offset drift magnitude
     static constexpr double kOffsetDriftDecay    = 0.99998; // Drift decay rate
+    static constexpr int kDriftUpdateInterval    = 64;      // Gaussian RNG decimation for slow offset drift
     static constexpr double kThdFreqCoeff        = 1e-8;    // THD frequency dependency coefficient
     static constexpr double kNegAsymmetry        = 0.96;    // Negative-side clipping asymmetry
     static constexpr double kLoadCapacitance     = 300e-12; // Load capacitance 300pF (cable)
     static constexpr double kLoadResistance      = 10000.0; // Load resistance 10kΩ (next stage input)
 
+
+
+    inline double nextUniformOpen01() noexcept
+    {
+        const double denom = static_cast<double>(std::minstd_rand::max()) + 1.0;
+        double u = (static_cast<double>(rng()) + 0.5) / denom;
+        return std::clamp(u, 1.0e-12, 1.0 - 1.0e-12);
+    }
+
+    inline double nextGaussian() noexcept
+    {
+        // Box-Muller with spare-value cache. This replaces std::normal_distribution
+        // in the audio hot path and guarantees both generated values are used.
+        if (hasGaussianSpare)
+        {
+            hasGaussianSpare = false;
+            return gaussianSpare;
+        }
+
+        constexpr double twoPi = 6.283185307179586476925286766559;
+        const double u1 = nextUniformOpen01();
+        const double u2 = nextUniformOpen01();
+        const double radius = std::sqrt(-2.0 * std::log(u1));
+        const double angle = twoPi * u2;
+
+        gaussianSpare = radius * std::sin(angle);
+        hasGaussianSpare = true;
+        return radius * std::cos(angle);
+    }
+
+    inline void updateOffsetDrift(size_t ch) noexcept
+    {
+        if (ch >= offsetDrift.size())
+            return;
+
+        if (driftCounter[ch] <= 0)
+        {
+            driftCounter[ch] = kDriftUpdateInterval;
+            offsetDrift[ch] += nextGaussian()
+                             * kOffsetDriftRate
+                             * std::sqrt(static_cast<double>(kDriftUpdateInterval));
+        }
+
+        --driftCounter[ch];
+        offsetDrift[ch] *= kOffsetDriftDecay;
+    }
+
+
+    void updateLoadAlpha() noexcept
+    {
+        if (sampleRate <= 1.0) { cachedLoadAlpha = 1.0; return; }
+        // Typical cable capacitance: 100pF/m × 3m = 300pF
+        const double RC = outputImpedance * kLoadCapacitance;
+        const double dt = 1.0 / sampleRate;
+        double a = dt / (RC + dt);
+        cachedLoadAlpha = std::clamp(a, 0.01, 1.0);
+    }
+
     double sampleRate;
     double outputImpedance = 75.0; // Output impedance (Ω)
+    double cachedLoadAlpha = 1.0;
     std::atomic<double> alpha;
     std::vector<double> prevY1, prevY2, prevY3;
     std::vector<double> slewState;
     std::vector<double> offsetDrift;
+    std::vector<int> driftCounter;
     std::vector<double> prevOut;
     std::vector<double> loadCapState;
     std::minstd_rand rng;
-    std::normal_distribution<double> normalDist;
+    bool hasGaussianSpare = false;
+    double gaussianSpare = 0.0;
 };

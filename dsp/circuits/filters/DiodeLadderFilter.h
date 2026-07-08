@@ -11,7 +11,7 @@
 
 // Diode ladder filter emulation
 // - 3-pole (-18dB/oct) diode ladder topology (distinct from transistor ladder)
-// - Diode nonlinearity (different clipping characteristics per stage → "squelchy" sound)
+// - Diode nonlinearity (different clipping characteristics per stage)
 // - Diode clipper in feedback path → distortion rides on resonance
 // - Temperature-dependent diode Vf drift
 // - Non-ideal inter-stage capacitance
@@ -32,7 +32,7 @@ public:
     };
 
     DiodeLadderFilter() noexcept
-        : rng(67), normalDist(0.0, 1.0),
+        : rng(67),
           fbDiode(DiodePrimitive(DiodePrimitive::Si1N4148()))
     {
         // 3-stage diodes: diode ladder low-Vf silicon (fixed variation per stage)
@@ -84,38 +84,43 @@ public:
         // thermal noise
         double sigLevel = std::abs(v0);
         if (sigLevel > 1e-10)
-            v0 += normalDist(rng) * kThermalNoise * std::min(1.0, sigLevel);
+            v0 += fastNoise(rng) * kThermalNoise * std::min(1.0, sigLevel);
 
-        // feedback (previous sample's final stage output, made nonlinear by diode primitive)
-        double fb = fbDiode.feedbackClip(st.delay, lastTemp) * resonanceScaled;
-        double input = v0 - fb;
+        // ZDF 3-pole diode ladder: linear solve for y2 without unit delay
+        // (diode feedbackClip is linear below Vf, so linear ZDF is exact at small signal;
+        //  the clip engages naturally for large resonance amplitude)
+        //   y_i = G * (sat(y_{i-1}) + s_i/g) [small signal: sat≈id]
+        //   y2*(1 + k*G^3) = G^3*input + G^3*s0/g + G^2*s1/g + G*s2/g
+        const double gInv = (gCoeff > 1e-10) ? 1.0 / gCoeff : 0.0;
+        const double G2 = G * G, G3 = G2 * G;
+        const double S = G3 * st.s[0] * gInv + G2 * st.s[1] * gInv + G * st.s[2] * gInv;
+        const double y2_zdf = (G3 * v0 + S) / (1.0 + resonanceScaled * G3);
 
-        // 3-stage diode ladder — using DiodePrimitive for each stage
+        // Apply diode clip to ZDF estimate → physical resonance amplitude limiting
+        const double fb = fbDiode.feedbackClip(y2_zdf, lastTemp) * resonanceScaled;
+        double x_in = v0 - fb;
+
+        // 3-stage sequential processing with per-stage diode nonlinearity
         for (int i = 0; i < 3; ++i)
         {
-            double s = st.s[i];
-            double gi = gCoeff;
+            // TPT 1-pole integrator with diode saturation
+            const double y = G * (stageDiode[i].saturate(x_in, lastTemp) + st.s[i] * gInv);
 
-            // diode nonlinearity: each stage's primitive (reflects component variation)
-            double diff = stageDiode[i].saturate(input, lastTemp) - stageDiode[i].saturate(s, lastTemp);
-            double y = s + gi * diff;
-            st.s[i] = y;
-
-            // minor crosstalk due to inter-stage capacitance
+            // Inter-stage capacitance (minor crosstalk)
+            double y_out = y;
             if (i < 2)
             {
                 double& cap = st.interCap[i];
                 cap += kInterCapAlpha * (y - cap);
-                y = y * 0.997 + cap * 0.003;
-                st.s[i] = FastMath::sanitize(y);
+                y_out = y * 0.997 + cap * 0.003;
             }
 
-            input = y;
+            // TPT state update: s_new = 2*y - s_old
+            st.s[i] = FastMath::sanitize(2.0 * y - st.s[i]);
+
+            x_in = y_out;
         }
 
-        st.delay = st.s[2];
-
-        // output is the final stage: -18dB/oct LP characteristic
         return (float)FastMath::sanitize(st.s[2]);
     }
 
@@ -146,28 +151,26 @@ private:
 
     struct ChannelState
     {
-        double s[3]       = {};          // 3 stages' state
-        double delay      = 0.0;         // feedback delay
+        double s[3]       = {};          // 3 TPT integrator states
         double interCap[2] = {};         // inter-stage capacitance
     };
 
     void updateCoefficients(float fc, float r, float temperature = 25.0f) noexcept
     {
-        cutoffHz = std::clamp((double)fc, 20.0, sampleRate * 0.49);
+        cutoffHz = std::clamp((double)fc, 20.0, sampleRate * 0.45);
         reso = std::clamp((double)r, 0.0, 1.0);
         lastTemp = temperature;
 
         // temperature dependence: diode Vf shift → minor cutoff variation
-        // uses the effectiveVf of the Parts primitive
         double vf25 = stageDiode[0].getSpec().Vf_25C;
         double vfNow = stageDiode[0].effectiveVf(temperature);
-        double vfScale = vfNow / vf25;
-        vfScale = std::clamp(vfScale, 0.90, 1.10);
+        double vfScale = std::clamp(vfNow / vf25, 0.90, 1.10);
+        double effectiveFc = std::clamp(cutoffHz * vfScale, 20.0, sampleRate * 0.45);
 
-        double effectiveFc = cutoffHz * vfScale;
-        effectiveFc = std::clamp(effectiveFc, 20.0, sampleRate * 0.49);
+        // TPT pre-warped g coefficient: enables ZDF self-oscillation at reso=1.0
+        gCoeff = std::tan(3.14159265358979323846 * effectiveFc / sampleRate);
+        G = gCoeff / (1.0 + gCoeff);
 
-        gCoeff = 1.0 - std::exp(-2.0 * 3.14159265358979323846 * effectiveFc / sampleRate);
         resonanceScaled = reso * kMaxResonance;
     }
 
@@ -176,9 +179,17 @@ private:
     double reso            = 0.0;
     float  lastTemp        = 25.0f;
     double gCoeff          = 0.0;
+    double G               = 0.0;   // TPT single-pole coefficient gCoeff/(1+gCoeff)
     double resonanceScaled = 0.0;
 
     std::vector<ChannelState> chState;
     std::minstd_rand rng;
-    std::normal_distribution<double> normalDist;
+    std::normal_distribution<double> normalDist;  // unused placeholder
+    static double fastNoise (std::minstd_rand& r) noexcept
+    {
+        constexpr double kInv = 1.0 / 2147483648.0;
+        const double s = ((double)(int)r() + (double)(int)r()
+                        + (double)(int)r() + (double)(int)r()) * kInv;
+        return (s - 2.0) * 1.7320508;
+    }
 };
