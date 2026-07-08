@@ -28,7 +28,7 @@
 - Reworked `OtaSKFilter` from forward-Euler behavior to a TPT SVF-style solver.
 - Fixed the missing `g2*s1` term in the `OtaSKFilter` high-pass calculation.
 - Replaced forward-Euler ladder integration in `LadderFilter` and `DiodeLadderFilter` with ZDF/TPT processing.
-- Extended `FilterEngine` filter coverage and routing for the newer filter circuits.
+- Clarified that `FilterEngine` remains the integrated SVF/ToneFilter/Ladder engine; the newer filter circuits are standalone L3 modules exported by `include/patina.h`.
 
 ### Performance
 

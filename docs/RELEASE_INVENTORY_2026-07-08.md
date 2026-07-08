@@ -24,7 +24,7 @@ This document records the current Dev/Public alignment point for the Patina libr
 | `AllPassFilter` | Public API | 1st-order TPT all-pass section cascade, up to four stages. |
 | `OtaSKFilter` | Stabilized | Reworked from forward-Euler behavior into a TPT SVF-style solver and fixed the high-resonance/high-cutoff instability path. |
 | `LadderFilter` / `DiodeLadderFilter` | Stabilized | Replaced forward-Euler ladder integration with ZDF/TPT processing. |
-| `FilterEngine` | Extended | Expanded filter type coverage and smoother routing to the newer filter circuits. |
+| `FilterEngine` | Documented | Remains an SVF/ToneFilter/Ladder integrated engine; the new filters are documented as standalone L3 circuit modules. |
 | Analog noise/drift paths | Performance | Replaced per-sample `std::normal_distribution` usage with cheaper lower-rate Gaussian updates where the analog behavior permits it. |
 | macOS metadata | Cleanup | Public tree excludes local `.DS_Store` metadata. |
 
@@ -36,4 +36,4 @@ This document records the current Dev/Public alignment point for the Patina libr
 
 - `README.md`: feature inventory and filter list updated.
 - `CHANGELOG.md`: new `1.1.0` entry added with Dev/Public synchronization notes.
-- `docs/API_REFERENCE.md`: existing vocoder reference remains valid, but the vocoder status is experimental for release communication.
+- `docs/API_REFERENCE.md`: filter sections now include `OtaLadderFilter`, `AcidLadderFilter`, and `AllPassFilter`; `VocoderBand` is marked experimental.

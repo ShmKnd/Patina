@@ -55,6 +55,9 @@
 29. [DiodeLadderFilter](#29-diodeladderfilter)
 30. [AnalogAllPass](#30-analogallpass)
 31. [PassiveLCFilter](#31-passivelcfilter)
+31A. [OtaLadderFilter](#31a-otaladderfilter)
+31B. [AcidLadderFilter](#31b-acidladderfilter)
+31C. [AllPassFilter](#31c-allpassfilter)
 
 #### L3: BBD
 32. [BbdStageEmulator](#32-bbdstageemulator)
@@ -1354,7 +1357,7 @@ public:
 
 `#include "dsp/circuits/filters/OtaSKFilter.h"`
 
-OTA (LM13700) Sallen-Key filter emulation. Features 2-pole (-12dB/oct) LPF / HPF / BPF (HPF→LPF cascade). Models OTA input diode clipping, temperature-dependent gm drift, and component tolerances.
+OTA (LM13700) Sallen-Key filter emulation. Features 2-pole (-12dB/oct) LPF / HPF / BPF (HPF→LPF cascade). The current implementation uses a TPT SVF-style solver for stable high-resonance/high-cutoff behavior, and models OTA input diode clipping, temperature-dependent gm drift, and component tolerances.
 
 ```cpp
 class OtaSKFilter {
@@ -1367,7 +1370,7 @@ public:
     void prepare(const patina::ProcessSpec&);
     void reset();
     void setCutoffHz(float hz);
-    void setResonance(float r);          // 0–1, 1.0=self-oscillation
+    void setResonance(float r);          // 0–1 high-resonance range
     void setMode(Mode m);
     float process(int ch, float x, int modeOverride=-1);
     float process(int ch, float x, const Params&);
@@ -1378,7 +1381,7 @@ public:
 | Parameter | Range | Description |
 |-----------|------|------|
 | `cutoffHz` | 20–Nyquist | Cutoff frequency |
-| `resonance` | 0.0–1.0 | Resonance (self-oscillation at 1.0) |
+| `resonance` | 0.0–1.0 | Resonance / feedback amount |
 | `drive` | 0.0–1.0 | OTA input overdrive |
 | `temperature` | °C | gm temperature coefficient drift |
 
@@ -1505,6 +1508,107 @@ p.drive = 0.2f;
 p.filterType = PassiveLCFilter::BPF;
 float out = filt.process(0, input, p);
 ```
+
+---
+
+## 31A. OtaLadderFilter
+
+`#include "dsp/circuits/filters/OtaLadderFilter.h"`
+
+4-pole OTA ladder low-pass filter. Uses TPT/ZDF integration, OTA saturation, per-stage mismatch, temperature-dependent gm drift, and light thermal-noise injection. Unlike `FilterEngine`, this is a standalone L3 circuit module and is accessed directly or through `include/patina.h`.
+
+```cpp
+class OtaLadderFilter {
+public:
+    struct Params {
+        float cutoffHz    = 1000.0f;
+        float resonance   = 0.0f;
+        float drive       = 0.0f;
+        float temperature = 25.0f;
+    };
+
+    OtaLadderFilter() noexcept;
+    void prepare(int numChannels, double sampleRate) noexcept;
+    void prepare(const patina::ProcessSpec& spec) noexcept;
+    void reset() noexcept;
+    void setCutoffHz(float hz) noexcept;
+    void setResonance(float r) noexcept;
+    float process(int channel, float x, float driveAmount=0.0f) noexcept;
+    float process(int channel, float x, const Params& params) noexcept;
+    void processBlock(float* const* io, int numChannels, int numSamples,
+                      const Params& params) noexcept;
+};
+```
+
+| Parameter | Range | Description |
+|-----------|------|------|
+| `cutoffHz` | 20–0.45 × sampleRate | Low-pass cutoff frequency |
+| `resonance` | 0.0–1.0 | Resonance feedback amount |
+| `drive` | 0.0–1.0 | OTA input drive amount |
+| `temperature` | °C | OTA gm temperature drift |
+
+---
+
+## 31B. AcidLadderFilter
+
+`#include "dsp/circuits/filters/AcidLadderFilter.h"`
+
+3-pole transistor ladder low-pass filter with fixed input HPF, resonance-dependent band-pass blend, BJT saturation, and TPT/ZDF integration. This is a standalone L3 circuit module and is not currently a `FilterEngine::FilterType`.
+
+```cpp
+class AcidLadderFilter {
+public:
+    struct Params {
+        float cutoffHz    = 1000.0f;
+        float resonance   = 0.0f;
+        float drive       = 0.0f;
+        float temperature = 25.0f;
+    };
+
+    AcidLadderFilter() noexcept;
+    void prepare(int numChannels, double sampleRate) noexcept;
+    void prepare(const patina::ProcessSpec& spec) noexcept;
+    void reset() noexcept;
+    void setCutoffHz(float hz) noexcept;
+    void setResonance(float r) noexcept;
+    float process(int channel, float x, float driveAmount=0.0f) noexcept;
+    float process(int channel, float x, const Params& params) noexcept;
+    void processBlock(float* const* io, int numChannels, int numSamples,
+                      const Params& params) noexcept;
+};
+```
+
+| Parameter | Range | Description |
+|-----------|------|------|
+| `cutoffHz` | 20–0.45 × sampleRate | Low-pass cutoff frequency |
+| `resonance` | 0.0–1.0 | Resonance feedback amount |
+| `drive` | 0.0–1.0 | BJT input drive amount |
+| `temperature` | °C | BJT temperature drift |
+
+---
+
+## 31C. AllPassFilter
+
+`#include "dsp/circuits/filters/AllPassFilter.h"`
+
+Cascadable 1st-order TPT all-pass section. The implementation supports 1 to 4 stages, has flat magnitude response, and shifts phase by approximately -90 degrees per stage at the configured cutoff frequency.
+
+```cpp
+class AllPassFilter {
+public:
+    void prepare(const patina::ProcessSpec& spec) noexcept;
+    void prepareSampleRate(double sampleRate) noexcept;
+    void reset() noexcept;
+    void setCutoffHz(float hz) noexcept;
+    float process(int channel, float x, float drive=0.0f, int stages=1) noexcept;
+};
+```
+
+| Parameter | Range | Description |
+|-----------|------|------|
+| `cutoffHz` | 20–0.48 × sampleRate | Phase-shift center frequency |
+| `stages` | 1–4 | Number of cascaded 1st-order all-pass sections |
+| `drive` | unused | Accepted only for interface uniformity |
 
 ---
 
@@ -2810,7 +2914,7 @@ for (int i = 0; i < numSamples; ++i) {
 
 `#include "dsp/circuits/vocoder/VocoderBand.h"`
 
-Single band of a classic analog vocoder channel strip. Fully constructed from L2 primitives: OTA SVF filters, diode rectifier envelope detector with asymmetric RC charging/discharging, and VCA for modulation depth. Models the characteristic sound of vintage vocoder circuits used in analog synthesizers and professional recording equipment.
+**Experiment.** Single band of a classic analog vocoder channel strip. Fully constructed from L2 primitives: OTA SVF filters, diode rectifier envelope detector with asymmetric per-channel RC charging/discharging, and VCA for modulation depth. This module is available for evaluation and tests, but should not be treated as a stable production vocoder engine API yet.
 
 **Signal Flow:**
 1. **Modulator Input** → OTA SVF (BPF) → Half-wave rectifier → Envelope detector (RC attack/release)
@@ -2886,7 +2990,7 @@ band.processBlock(modInput, carInput, output, 2, numSamples, p);
 double env = band.getEnvelope(0);
 ```
 
-**Vocoder Characteristics:**
+**Experiment Characteristics:**
 - **Attack:** Fast charge (R_att × C_env ≈ 5 ms) captures transient peaks
 - **Release:** Slow discharge (R_rel × C_env ≈ 50 ms) maintains tone between events
 - **BPF:** OTA SVF with temperature-dependent center frequency
@@ -4017,8 +4121,8 @@ float gr = lim.getVcaGainReductionDb(0);
 `#include "dsp/engine/FilterEngine.h"`
 
 Dual filter + triple drive integrated engine.
-Combines 2 filters and 3 drives in serial / parallel routing
-to build versatile filter effects.
+Combines 2 filter slots and 3 drive slots in serial / parallel routing
+to build versatile filter effects. Current filter slots use `StateVariableFilter`, `ToneFilter`, and `LadderFilter`; newer L3 filters such as `OtaLadderFilter`, `AcidLadderFilter`, and `AllPassFilter` are standalone circuit modules rather than `FilterEngine::FilterType` options.
 
 > Signal path:  
 > Serial:   Input → Drive1 → Filter1 → Drive2 → Filter2 → Drive3 → Dry/Wet  

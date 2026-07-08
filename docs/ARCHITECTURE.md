@@ -33,5 +33,6 @@ flowchart LR
 
 Notes:
 
-- Keep `CHANGELOG.md` and other internal-only files in the private repository.
+- Keep public documentation sanitized when syncing from the private Dev repository; implementation-facing notes may remain private when they expose internal naming or local workflow details.
+- `CHANGELOG.md` is part of both Dev and Public release documentation.
 - This diagram is intentionally high-level; expand per-component diagrams where needed.

@@ -219,7 +219,7 @@ rc.reset();
 <a id="recipe-1"></a>
 ## Recipe 1: Hand-built Transistor Ladder Filter (L2)
 
-Build a Moog-style ladder filter using four BJT differential pairs + RC. Equivalent to L3 `LadderFilter`, but controlled at the primitive level.
+Build a 4-pole transistor ladder filter using four BJT differential pairs + RC. Equivalent to L3 `LadderFilter`, but controlled at the primitive level.
 
 ```cpp
 #include "include/patina.h"
@@ -929,9 +929,6 @@ PhotocellPrimitive vtl(PhotocellPrimitive::VTL5C3());
 ---
 
 <a id="troubleshooting"></a>
-## トラブルシューティング
-
-### Q: BBD フィードバックが暴走する
 ## Troubleshooting
 
 ### Q: The filter self-oscillates
